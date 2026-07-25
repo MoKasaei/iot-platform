@@ -1,57 +1,49 @@
-import mongoose, { Schema, Document } from "mongoose";
+import { Schema, model, Document } from "mongoose";
 
 export interface IOrganization extends Document {
+
+    organizationId: string;
+
     name: string;
+
     description?: string;
-    email?: string;
-    phone?: string;
-    address?: string;
+
     active: boolean;
 
     createdAt: Date;
+
     updatedAt: Date;
 }
 
-const OrganizationSchema = new Schema<IOrganization>(
+const schema = new Schema<IOrganization>(
     {
-        name: {
+
+        organizationId: {
             type: String,
             required: true,
             unique: true,
-            trim: true,
+            index: true
+        },
+
+        name: {
+            type: String,
+            required: true
         },
 
         description: {
             type: String,
-            default: "",
-        },
-
-        email: {
-            type: String,
-            default: "",
-        },
-
-        phone: {
-            type: String,
-            default: "",
-        },
-
-        address: {
-            type: String,
-            default: "",
+            default: ""
         },
 
         active: {
             type: Boolean,
-            default: true,
-        },
+            default: true
+        }
+
     },
     {
-        timestamps: true,
+        timestamps: true
     }
 );
 
-export default mongoose.model<IOrganization>(
-    "Organization",
-    OrganizationSchema
-);
+export default model<IOrganization>("Organization", schema);

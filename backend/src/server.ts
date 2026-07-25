@@ -1,17 +1,34 @@
-import dotenv from "dotenv";
-dotenv.config();
-
 import app from "./app";
+
+import { env } from "./config/env";
+
 import { connectMongoDB } from "./database/mongodb";
 
-const PORT = process.env.PORT || 3000;
+import { seedOrganization } from "./modules/organizations/organization.service";
+
+import { seedDeviceTypes } from "./modules/device-types/device-type.service";
+
+import { seedDevices } from "./modules/devices/device.service";
+
+import { startMQTTBroker } from "./mqtt/broker";
 
 async function start() {
 
     await connectMongoDB();
 
-    app.listen(PORT, () => {
-        console.log(`Server running on port ${PORT}`);
+    await seedOrganization();
+
+    await seedDeviceTypes();
+
+    await seedDevices();
+
+
+    startMQTTBroker();
+
+    app.listen(env.port, () => {
+
+        console.log(`Server listening on ${env.port}`);
+
     });
 
 }
