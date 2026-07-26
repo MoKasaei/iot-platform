@@ -311,6 +311,7 @@ function DeviceDetail() {
   const [location, setLocation] = useState({ latitude: 35.6892, longitude: 51.389, label: "" });
   const [nameDraft, setNameDraft] = useState("");
   const [renaming, setRenaming] = useState(false);
+  const [showLocation, setShowLocation] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -357,6 +358,7 @@ function DeviceDetail() {
       });
       setDevice(response.device);
       await loadWeather();
+      setShowLocation(false);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save location");
     } finally {
@@ -398,8 +400,8 @@ function DeviceDetail() {
 
   return <main className="content">
     <div className="page-title">
-      <div><span className="eyebrow">DEVICE INSIGHT</span><div className="device-title-edit"><input value={nameDraft} onChange={event => setNameDraft(event.target.value)} maxLength={120} aria-label="Device name" /><button className="text-button" disabled={renaming || !nameDraft.trim() || nameDraft.trim() === device.name} onClick={saveName}>{renaming ? "Saving..." : "Save name"}</button></div><p>{device.typeName || device.typeId} · Up to 100 recent readings</p></div>
-      <NavLink className="secondary-link" to="/devices">Back to devices</NavLink>
+      <div><span className="eyebrow">DEVICE INSIGHT</span><div className="device-title-edit"><input value={nameDraft} onChange={event => setNameDraft(event.target.value)} maxLength={120} aria-label="Device name" /><button className="text-button" disabled={renaming || !nameDraft.trim() || nameDraft.trim() === device.name} onClick={saveName}>{renaming ? "Saving..." : "Save name"}</button></div><p>{device.typeName || device.typeId}</p></div>
+      <div className="page-actions"><button className="secondary-button" onClick={() => setShowLocation(true)}><MapPin size={16} /> {hasCoordinates(device.location) ? "Change location" : "Set location"}</button><NavLink className="secondary-link" to="/devices">Back to devices</NavLink></div>
     </div>
     {error && <div className="error">{error}</div>}
 
@@ -407,7 +409,7 @@ function DeviceDetail() {
       <Stat icon={Thermometer} label="Device temperature" value={`${numberFrom(device.state || {}, "temperature")?.toFixed(1) ?? "—"} °C`} note="Latest device reading" tone="orange" />
       <Stat icon={Droplets} label="Device humidity" value={`${numberFrom(device.state || {}, "humidity")?.toFixed(1) ?? "—"}%`} note="Latest device reading" tone="blue" />
       <Stat icon={History} label="History points" value={String(telemetry.length)} note="Seven-day retention" />
-      <Stat icon={MapPin} label="Location" value={hasCoordinates(device.location) ? "Set" : "Missing"} note={device.location?.label || "Select on the map"} tone="green" />
+      <Stat icon={Thermometer} label="Outdoor temperature" value={weather ? `${fixed(weather.temperature)} °C` : "—"} note={hasCoordinates(device.location) ? "Current outdoor reading" : "Set device location"} tone="green" />
     </section>
 
     <section className="panel chart-panel">
@@ -425,34 +427,28 @@ function DeviceDetail() {
       </ResponsiveContainer></div> : <Empty />}
     </section>
 
-    <div className="location-grid">
-      <section className="panel location-panel">
-        <div className="panel-head"><div><h2>Device location</h2><p>Click the map to place this device</p></div></div>
-        <MapContainer key={`${location.latitude}-${location.longitude}`} center={mapCenter} zoom={12} scrollWheelZoom className="device-map">
-          <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          <MapClick onSelect={(latitude, longitude) => setLocation(current => ({ ...current, latitude, longitude }))} />
-          <Marker position={mapCenter} icon={deviceMarker} />
-        </MapContainer>
-        <div className="location-form">
-          <label>Location label<input value={location.label} onChange={event => setLocation({ ...location, label: event.target.value })} placeholder="Roof plant room" /></label>
-          <div className="coordinates"><span>{fixed(location.latitude, 5)}</span><span>{fixed(location.longitude, 5)}</span></div>
-          <button className="primary-button compact" disabled={saving} onClick={saveLocation}>{saving ? "Saving..." : "Save location"}</button>
-        </div>
-      </section>
+    <section className="panel weather-panel">
+      <div className="panel-head"><div><h2>Outdoor conditions</h2></div></div>
+      {weather ? <div className="weather-widget-grid">
+        <article className="weather-widget orange"><Thermometer /><span>Outdoor temperature</span><strong>{fixed(weather.temperature)} °C</strong></article>
+        <article className="weather-widget blue"><Droplets /><span>Outdoor humidity</span><strong>{weather.relativeHumidity}%</strong></article>
+        <article className="weather-widget"><Activity /><span>Dew point</span><strong>{fixed(weather.dewPoint)} °C</strong></article>
+      </div> : <div className="empty weather-empty"><MapPin /><strong>No outdoor conditions yet</strong><button className="primary-button compact" onClick={() => setShowLocation(true)}>Set location</button></div>}
+    </section>
 
-      <section className="panel weather-panel">
-        <div className="panel-head"><div><h2>Nearby outdoor conditions</h2><p>Current weather for the closest model grid point</p></div></div>
-        {weather ? <div className="weather-content">
-          <div className="weather-primary"><Thermometer /><strong>{fixed(weather.temperature)} °C</strong><span>Outdoor dry-bulb temperature</span></div>
-          <div className="weather-values">
-            <div><Droplets /><span><strong>{weather.relativeHumidity}%</strong><small>Relative humidity</small></span></div>
-            <div><Activity /><span><strong>{fixed(weather.dewPoint)} °C</strong><small>Dew point</small></span></div>
-          </div>
-          <div className="weather-source"><span>Source: {weather.source}</span><span>Grid distance: {weather.distanceKm} km</span><span>Observed: {weather.observedAt}</span></div>
-          <p className="calculation-note">Ready for a later psychrometric step: wet-bulb temperature can be calculated from dry-bulb temperature, relative humidity, and pressure.</p>
-        </div> : <div className="empty weather-empty"><MapPin /><strong>Set a device location</strong><span>Outdoor temperature and humidity will appear after the location is saved.</span></div>}
-      </section>
-    </div>
+    {showLocation && <div className="modal-backdrop"><div className="modal location-modal">
+      <div className="modal-title"><div><h2>Device location</h2><p>Click the map to place this device.</p></div><button type="button" onClick={() => setShowLocation(false)}><X /></button></div>
+      <MapContainer key={`${location.latitude}-${location.longitude}`} center={mapCenter} zoom={12} scrollWheelZoom className="device-map">
+        <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <MapClick onSelect={(latitude, longitude) => setLocation(current => ({ ...current, latitude, longitude }))} />
+        <Marker position={mapCenter} icon={deviceMarker} />
+      </MapContainer>
+      <div className="location-form">
+        <label>Location label<input value={location.label} onChange={event => setLocation({ ...location, label: event.target.value })} placeholder="Roof plant room" /></label>
+        <div className="coordinates"><span>{fixed(location.latitude, 5)}</span><span>{fixed(location.longitude, 5)}</span></div>
+        <button className="primary-button compact" disabled={saving} onClick={saveLocation}>{saving ? "Saving..." : "Save location"}</button>
+      </div>
+    </div></div>}
   </main>;
 }
 
