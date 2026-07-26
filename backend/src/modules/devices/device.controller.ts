@@ -28,7 +28,7 @@ export async function listDevices(req: AuthRequest, res: Response) {
     );
     const owners = req.user!.role === "admin"
         ? await User.find({ userId: { $in: devices.map(device => device.ownerUserId).filter((id): id is string => Boolean(id)) } })
-            .select("userId name nickname email")
+            .select("userId name nickname email phone")
         : [];
     const ownerMap = new Map(owners.map(owner => [owner.userId, owner]));
 

@@ -5,7 +5,8 @@ export interface User {
   userId: string;
   organizationId: string;
   name: string;
-  email: string;
+  email?: string;
+  phone?: string;
   role: Role;
   active?: boolean;
   primaryAdmin?: boolean;
@@ -14,6 +15,7 @@ export interface User {
   deviceLimit?: number | null;
   deviceCount?: number;
   theme?: Theme;
+  muteAlarmNotifications?: boolean;
   createdAt?: string;
 }
 
@@ -24,7 +26,7 @@ export interface Device {
   typeName?: string;
   name: string;
   ownerUserId?: string;
-  owner?: Pick<User, "userId" | "name" | "nickname" | "email">;
+  owner?: Pick<User, "userId" | "name" | "nickname" | "email" | "phone">;
   hardware: string;
   firmwareVersion: string;
   online: boolean;
@@ -86,4 +88,5 @@ export interface Alarm {
   read: boolean;
   resolvedAt?: string;
   createdAt: string;
+  owner?: { userId: string; name: string; nickname?: string; email?: string; phone?: string };
 }

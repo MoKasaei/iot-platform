@@ -2,6 +2,7 @@ import { Response } from "express";
 import { AuthRequest } from "../../middleware/auth.middleware";
 import Device from "../devices/device.model";
 import Alarm from "./alarm.model";
+import User from "../users/user.model";
 
 function access(req: AuthRequest) {
     return {
@@ -12,18 +13,26 @@ function access(req: AuthRequest) {
 }
 
 export async function listAlarms(req: AuthRequest, res: Response) {
-    const alarms = await Alarm.find(access(req)).sort({ createdAt: -1 }).limit(200);
-    const devices = await Device.find({
-        organizationId: req.user!.organizationId,
-        deviceId: { $in: alarms.map(alarm => alarm.deviceId) }
-    }).select("deviceId name");
+    const alarms = await Alarm.find(access(req)).sort({ resolvedAt: 1, createdAt: -1 }).limit(200);
+    const [devices, owners] = await Promise.all([
+        Device.find({
+            organizationId: req.user!.organizationId,
+            deviceId: { $in: alarms.map(alarm => alarm.deviceId) }
+        }).select("deviceId name"),
+        User.find({
+            organizationId: req.user!.organizationId,
+            userId: { $in: alarms.map(alarm => alarm.ownerUserId).filter((id): id is string => Boolean(id)) }
+        }).select("userId name nickname")
+    ]);
     const names = new Map(devices.map(device => [device.deviceId, device.name]));
+    const ownerMap = new Map(owners.map(owner => [owner.userId, owner]));
     return res.json({
         success: true,
         unreadCount: alarms.filter(alarm => !alarm.readBy.includes(req.user!.userId)).length,
         alarms: alarms.map(alarm => ({
             ...alarm.toObject(),
             deviceName: names.get(alarm.deviceId) || alarm.deviceId,
+            owner: alarm.ownerUserId ? ownerMap.get(alarm.ownerUserId) : undefined,
             read: alarm.readBy.includes(req.user!.userId)
         }))
     });

@@ -2,6 +2,16 @@ import bcrypt from "bcrypt";
 import { randomUUID } from "crypto";
 import User from "./user.model";
 
+export async function ensureUserIndexes() {
+    const indexes = await User.collection.indexes();
+    const emailIndex = indexes.find(index => index.name === "email_1");
+    if (emailIndex && !emailIndex.sparse) {
+        await User.collection.dropIndex("email_1");
+    }
+    await User.collection.createIndex({ email: 1 }, { unique: true, sparse: true });
+    await User.collection.createIndex({ phone: 1 }, { unique: true, sparse: true });
+}
+
 export async function seedAdmin() {
     const email = process.env.ADMIN_EMAIL;
     const password = process.env.ADMIN_PASSWORD;

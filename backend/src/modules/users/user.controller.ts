@@ -5,10 +5,11 @@ import { AuthRequest } from "../../middleware/auth.middleware";
 import User from "./user.model";
 import Device from "../devices/device.model";
 import { deleteUserData } from "../auth/auth.controller";
+import { normalizeEmail, normalizePhone, validEmail, validPhone } from "../auth/identity";
 
 export async function listUsers(req: AuthRequest, res: Response) {
     const users = await User.find({ organizationId: req.user!.organizationId })
-        .select("userId organizationId name nickname profilePhoto email role active deviceLimit createdAt")
+        .select("userId organizationId name nickname profilePhoto email phone role active deviceLimit createdAt")
         .sort({ createdAt: -1 });
     const counts = await Device.aggregate([
         { $match: { organizationId: req.user!.organizationId } },
@@ -20,33 +21,40 @@ export async function listUsers(req: AuthRequest, res: Response) {
         success: true,
         users: users.map(user => ({
             ...user.toObject(),
-            primaryAdmin: user.email.toLowerCase() === primaryEmail,
+            primaryAdmin: user.email?.toLowerCase() === primaryEmail,
             deviceCount: deviceCounts.get(user.userId) || 0
         }))
     });
 }
 
 export async function createUser(req: AuthRequest, res: Response) {
-    const { name, email, password, role = "user", nickname, deviceLimit = 1 } = req.body ?? {};
+    const { name, email, phone, password, role = "user", nickname, deviceLimit = 1 } = req.body ?? {};
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedPhone = normalizePhone(phone);
 
-    if (!name || !email || typeof password !== "string" || password.length < 8) {
+    if (!name || (!normalizedEmail && !normalizedPhone) ||
+        (normalizedEmail && !validEmail(normalizedEmail)) ||
+        (normalizedPhone && !validPhone(normalizedPhone)) ||
+        typeof password !== "string" || password.length < 8) {
         return res.status(400).json({
             success: false,
-            error: "Name, email and a password of at least 8 characters are required"
+            error: "Name, email or phone, and a password of at least 8 characters are required"
         });
     }
     if (!["admin", "user"].includes(role) || !Number.isInteger(deviceLimit) || deviceLimit < 0 || deviceLimit > 100) {
         return res.status(400).json({ success: false, error: "Invalid role" });
     }
-    if (await User.exists({ email: String(email).toLowerCase() })) {
-        return res.status(409).json({ success: false, error: "Email already exists" });
+    if ((normalizedEmail && await User.exists({ email: normalizedEmail })) ||
+        (normalizedPhone && await User.exists({ phone: normalizedPhone }))) {
+        return res.status(409).json({ success: false, error: "Email or phone already exists" });
     }
 
     const user = await User.create({
         userId: randomUUID(),
         organizationId: req.user!.organizationId,
         name,
-        email,
+        ...(normalizedEmail ? { email: normalizedEmail } : {}),
+        ...(normalizedPhone ? { phone: normalizedPhone } : {}),
         passwordHash: await bcrypt.hash(password, 12),
         role,
         nickname: typeof nickname === "string" ? nickname.trim().slice(0, 80) : undefined,
@@ -57,18 +65,18 @@ export async function createUser(req: AuthRequest, res: Response) {
         success: true,
         user: {
             userId: user.userId, organizationId: user.organizationId, name: user.name,
-            email: user.email, role: user.role, active: user.active
+            email: user.email, phone: user.phone, role: user.role, active: user.active
         }
     });
 }
 
 export async function updateUser(req: AuthRequest, res: Response) {
-    const { role, active, nickname, deviceLimit } = req.body ?? {};
+    const { role, active, nickname, deviceLimit, email, phone } = req.body ?? {};
     const updates: Record<string, unknown> = {};
     const target = await User.findOne({
         userId: req.params.userId,
         organizationId: req.user!.organizationId
-    }).select("email");
+    }).select("email phone");
 
     if (!target) {
         return res.status(404).json({
@@ -78,7 +86,7 @@ export async function updateUser(req: AuthRequest, res: Response) {
     }
 
     const isPrimaryAdmin =
-        target.email.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase();
+        target.email?.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase();
     if (
         isPrimaryAdmin &&
         ((role !== undefined && role !== "admin") || active === false)
@@ -107,12 +115,41 @@ export async function updateUser(req: AuthRequest, res: Response) {
         }
         updates.deviceLimit = isPrimaryAdmin ? null : deviceLimit;
     }
+    if (email !== undefined || phone !== undefined) {
+        const normalizedEmail = normalizeEmail(email);
+        const normalizedPhone = normalizePhone(phone);
+        if ((!normalizedEmail && !normalizedPhone) ||
+            (normalizedEmail && !validEmail(normalizedEmail)) ||
+            (normalizedPhone && !validPhone(normalizedPhone))) {
+            return res.status(400).json({ success: false, error: "A valid email or phone number is required" });
+        }
+        if (isPrimaryAdmin && normalizedEmail !== target.email?.toLowerCase()) {
+            return res.status(403).json({ success: false, error: "The primary administrator email is controlled by the server environment" });
+        }
+        if (normalizedEmail && await User.exists({ email: normalizedEmail, userId: { $ne: target.userId } })) {
+            return res.status(409).json({ success: false, error: "Email already exists" });
+        }
+        if (normalizedPhone && await User.exists({ phone: normalizedPhone, userId: { $ne: target.userId } })) {
+            return res.status(409).json({ success: false, error: "Phone number already exists" });
+        }
+        if (normalizedEmail) updates.email = normalizedEmail;
+        if (normalizedPhone) updates.phone = normalizedPhone;
+        const unset: Record<string, number> = {};
+        if (!normalizedEmail) unset.email = 1;
+        if (!normalizedPhone) unset.phone = 1;
+        const user = await User.findOneAndUpdate(
+            { userId: req.params.userId, organizationId: req.user!.organizationId },
+            { $set: updates, $unset: unset },
+            { new: true }
+        ).select("userId organizationId name nickname profilePhoto email phone role active deviceLimit");
+        return res.json({ success: true, user: { ...user!.toObject(), primaryAdmin: isPrimaryAdmin } });
+    }
 
     const user = await User.findOneAndUpdate(
         { userId: req.params.userId, organizationId: req.user!.organizationId },
         updates,
         { new: true }
-    ).select("userId organizationId name nickname profilePhoto email role active deviceLimit");
+    ).select("userId organizationId name nickname profilePhoto email phone role active deviceLimit");
 
     return res.json({ success: true, user: {
         ...user!.toObject(),
@@ -124,13 +161,14 @@ export async function deleteUser(req: AuthRequest, res: Response) {
     const target = await User.findOne({
         userId: req.params.userId,
         organizationId: req.user!.organizationId
-    }).select("email userId organizationId");
+    }).select("email phone userId organizationId");
     if (!target) return res.status(404).json({ success: false, error: "User not found" });
-    if (target.email.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase()) {
+    if (target.email?.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase()) {
         return res.status(403).json({ success: false, error: "The primary administrator cannot be removed" });
     }
-    if (req.body?.confirmation !== target.email) {
-        return res.status(400).json({ success: false, error: "Type the user's email address to confirm permanent deletion" });
+    const contact = target.email || target.phone;
+    if (req.body?.confirmation !== contact) {
+        return res.status(400).json({ success: false, error: "Type the user's email or phone number to confirm permanent deletion" });
     }
     await deleteUserData(target.userId, target.organizationId);
     await target.deleteOne();
@@ -147,7 +185,7 @@ export async function resetUserPassword(req: AuthRequest, res: Response) {
         organizationId: req.user!.organizationId
     }).select("email +passwordHash");
     if (!target) return res.status(404).json({ success: false, error: "User not found" });
-    if (target.email.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase()) {
+    if (target.email?.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase()) {
         return res.status(403).json({ success: false, error: "Use account settings to change the primary administrator password" });
     }
     target.passwordHash = await bcrypt.hash(temporaryPassword, 12);

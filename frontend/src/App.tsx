@@ -64,7 +64,7 @@ function Login() {
         <span className="eyebrow">WELCOME BACK</span>
         <h2>Sign in to your workspace</h2>
         <p>Sign in, or create your own account.</p>
-        <label>Email address<input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="email" required /></label>
+        <label>Email address or phone number<input value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com or +964…" autoComplete="username" required /></label>
         <label>Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" required /></label>
         <p className="forgot-note">Forgot your password? Contact the administrator of {organizationName} to receive a temporary password.</p>
         {error && <div className="error">{error}</div>}
@@ -77,7 +77,7 @@ function Login() {
 
 function Register() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ name: "", email: "", password: "", captchaAnswer: "", website: "" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", captchaAnswer: "", website: "" });
   const [challenge, setChallenge] = useState({ question: "", token: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -87,6 +87,9 @@ function Register() {
   useEffect(() => { refreshCaptcha(); }, []);
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError("");
+    if (!form.email.trim() && !form.phone.trim()) {
+      setError("Enter an email address or phone number"); setBusy(false); return;
+    }
     try {
       await api("/auth/register", { method: "POST", body: JSON.stringify({ ...form, captchaToken: challenge.token }) });
       navigate("/login", { replace: true });
@@ -97,7 +100,8 @@ function Register() {
   }
   return <main className="login-page"><section className="login-brand"><div className="brand-mark"><Activity /></div><div><span className="eyebrow">JOIN THE PLATFORM</span><h1>Connect your first device.</h1><p>Create a secure account and start with one device. An administrator can raise this limit later.</p></div></section><section className="login-panel"><form className="login-form" onSubmit={submit}><span className="eyebrow">NEW ACCOUNT</span><h2>Create your account</h2>
     <label>Full name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} maxLength={120} required /></label>
-    <label>Email address<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required /></label>
+    <label>Email address (optional)<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
+    <label>Phone number (optional)<input type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+964…" /></label>
     <label>Password<input type="password" minLength={8} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required /></label>
     <label className="honeypot" aria-hidden="true">Website<input tabIndex={-1} autoComplete="off" value={form.website} onChange={e => setForm({ ...form, website: e.target.value })} /></label>
     <label>Security check: {challenge.question}<input inputMode="numeric" value={form.captchaAnswer} onChange={e => setForm({ ...form, captchaAnswer: e.target.value })} required /></label>
@@ -105,7 +109,7 @@ function Register() {
   </form></section></main>;
 }
 
-function useAlarms() {
+function useAlarms(enabled = true) {
   const [alarms, setAlarms] = useState<Alarm[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [error, setError] = useState("");
@@ -113,10 +117,11 @@ function useAlarms() {
     .then(response => { setAlarms(response.alarms); setUnreadCount(response.unreadCount); setError(""); })
     .catch(loadError => setError(loadError.message));
   useEffect(() => {
+    if (!enabled) { setAlarms([]); setUnreadCount(0); return; }
     void load();
     const interval = window.setInterval(load, 5000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [enabled]);
   async function read(alarmId: string) {
     await api(`/alarms/${alarmId}/read`, { method: "PATCH" }); await load();
   }
@@ -134,7 +139,7 @@ function Shell() {
   const [open, setOpen] = useState(false);
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
-  const alarmFeed = useAlarms();
+  const alarmFeed = useAlarms(!(user?.role === "admin" && user.muteAlarmNotifications));
   useEffect(() => {
     if (user) api<{ organization: Organization }>("/organizations/current")
       .then(response => setOrganization(response.organization))
@@ -167,7 +172,7 @@ function Shell() {
       </div>
     </aside>
     <div className="workspace">
-      <header><button className="menu-button" onClick={() => setOpen(true)}><Menu /></button><div className="header-right"><span className="org-chip">{organization?.code || user.organizationId}</span><div className="notification-wrap"><button className="notification-button" onClick={() => setShowNotifications(value => !value)} aria-label="Notifications"><Bell size={20} />{alarmFeed.unreadCount > 0 && <b>{Math.min(alarmFeed.unreadCount, 99)}</b>}</button>{showNotifications && <div className="notification-panel"><div className="notification-head"><div><strong>Alarms</strong><small>{alarmFeed.unreadCount} unread</small></div><NavLink to="/alerts" onClick={() => setShowNotifications(false)}>View all</NavLink></div><div className="notification-list">{alarmFeed.alarms.slice(0, 6).map(alarm => <article className={alarm.read ? "" : "unread"} key={alarm._id}><span className="alarm-dot" /><div><strong>{alarm.deviceName}</strong><p>{alarm.message}</p><small>{new Date(alarm.createdAt).toLocaleString()}</small></div><div className="notification-actions">{!alarm.read && <button title="Mark as read" onClick={() => void alarmFeed.read(alarm._id)}>Read</button>}<button title="Dismiss" onClick={() => void alarmFeed.dismiss(alarm._id)}><X size={14} /></button></div></article>)}{alarmFeed.alarms.length === 0 && <div className="notification-empty">No alarms</div>}</div></div>}</div></div></header>
+      <header><button className="menu-button" onClick={() => setOpen(true)}><Menu /></button><div className="header-right"><span className="org-chip">{organization?.code || user.organizationId}</span><div className="notification-wrap"><button className="notification-button" onClick={() => setShowNotifications(value => !value)} aria-label="Notifications"><Bell size={20} />{alarmFeed.unreadCount > 0 && <b>{Math.min(alarmFeed.unreadCount, 99)}</b>}</button>{showNotifications && <div className="notification-panel"><div className="notification-head"><div><strong>Alarms</strong><small>{alarmFeed.unreadCount} unread</small></div><NavLink to="/alerts" onClick={() => setShowNotifications(false)}>View all</NavLink></div><div className="notification-list">{alarmFeed.alarms.slice(0, 6).map(alarm => <article className={`${alarm.read ? "" : "unread"} ${alarm.resolvedAt ? "resolved" : ""}`} key={alarm._id}><span className="alarm-dot" /><div><strong>{alarm.deviceName}</strong><p>{alarm.message}</p>{user.role === "admin" && <small className="alarm-owner">Owner: {alarm.owner ? alarm.owner.nickname ? `${alarm.owner.nickname} · ${alarm.owner.name}` : alarm.owner.name : "Unassigned"}</small>}<small>{new Date(alarm.createdAt).toLocaleString()}</small></div><div className="notification-actions">{!alarm.read && <button title="Mark as read" onClick={() => void alarmFeed.read(alarm._id)}>Read</button>}<button title="Dismiss" onClick={() => void alarmFeed.dismiss(alarm._id)}><X size={14} /></button></div></article>)}{alarmFeed.alarms.length === 0 && <div className="notification-empty">{user.role === "admin" && user.muteAlarmNotifications ? "Notifications muted" : "No alarms"}</div>}</div></div>}</div></div></header>
       <Routes>
         <Route path="/" element={<Overview />} />
         <Route path="/devices" element={<Devices />} />
@@ -369,7 +374,7 @@ function Devices() {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("name");
   const [showAddDevice, setShowAddDevice] = useState(false);
-  const filtered = devices.filter(d => `${d.name} ${d.deviceId} ${d.typeName || d.typeId} ${d.owner?.name || ""} ${d.owner?.nickname || ""} ${d.owner?.email || ""}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => {
+  const filtered = devices.filter(d => `${d.name} ${d.deviceId} ${d.typeName || d.typeId} ${d.owner?.name || ""} ${d.owner?.nickname || ""} ${d.owner?.email || ""} ${d.owner?.phone || ""}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => {
     if (sort === "owner") return (a.owner?.nickname || a.owner?.name || "").localeCompare(b.owner?.nickname || b.owner?.name || "");
     if (sort === "status") return Number(b.online) - Number(a.online);
     if (sort === "type") return (a.typeName || a.typeId).localeCompare(b.typeName || b.typeId);
@@ -536,8 +541,7 @@ const statusDefinitions = [
   { key: "CircularPump", label: "Circulation pump" },
   { key: "DrainPump", label: "Drain pump" },
   { key: "SystemONOFF", label: "System" },
-  { key: "TurboONOFF", label: "Turbo" },
-  { key: "Errors", label: "Errors" }
+  { key: "TurboONOFF", label: "Turbo" }
 ];
 
 function EquipmentReadings({ state }: { state: Record<string, unknown> }) {
@@ -550,14 +554,16 @@ function EquipmentReadings({ state }: { state: Record<string, unknown> }) {
       ...definition,
       active: !["0", "false", "off", ""].includes(String(state[definition.key]).toLowerCase())
     }));
+  const errors = deviceErrors(state);
 
-  if (!sensors.length && !statuses.length) return null;
+  if (!sensors.length && !statuses.length && !errors.length) return null;
 
   return <section className="panel equipment-panel">
     <div className="panel-head"><div><h2>Equipment readings</h2></div></div>
     <div className="equipment-grid">
       {sensors.map(sensor => <article className="equipment-reading" key={sensor.key}><span>{sensor.label}</span><strong>{fixed(sensor.value)} <small>{sensor.unit}</small></strong></article>)}
       {statuses.map(status => <article className="equipment-status" key={status.key}><i className={status.active ? "active" : ""} /><span>{status.label}</span><strong>{status.active ? "On" : "Off"}</strong></article>)}
+      {errors.length > 0 && <article className="equipment-error-text"><span>Reported errors</span>{errors.map(error => <code key={error}>{error}</code>)}</article>}
     </div>
   </section>;
 }
@@ -791,7 +797,7 @@ function DeviceDetail() {
     </div>
     {error && <div className="error">{error}</div>}
 
-    {user?.role === "admin" && <section className="panel device-admin-panel"><div><span className="eyebrow">ADMIN DEVICE DETAILS</span><strong>Device ID: <code>{device.deviceId}</code></strong></div><label>Assigned owner<select value={ownerUserId} onChange={event => setOwnerUserId(event.target.value)}><option value="">Unassigned</option>{owners.map(owner => <option key={owner.userId} value={owner.userId}>{owner.nickname || owner.name} · {owner.email}</option>)}</select></label><button className="primary-button compact" disabled={savingOwner || ownerUserId === (device.ownerUserId || "")} onClick={saveOwner}>{savingOwner ? "Saving…" : "Save owner"}</button></section>}
+    {user?.role === "admin" && <section className="panel device-admin-panel"><div><span className="eyebrow">ADMIN DEVICE DETAILS</span><strong>Device ID: <code>{device.deviceId}</code></strong></div><label>Assigned owner<select value={ownerUserId} onChange={event => setOwnerUserId(event.target.value)}><option value="">Unassigned</option>{owners.map(owner => <option key={owner.userId} value={owner.userId}>{owner.nickname || owner.name} · {owner.email || owner.phone}</option>)}</select></label><button className="primary-button compact" disabled={savingOwner || ownerUserId === (device.ownerUserId || "")} onClick={saveOwner}>{savingOwner ? "Saving…" : "Save owner"}</button></section>}
 
     <section className="device-metrics">
       <Stat icon={Thermometer} label="Device temperature" value={`${fixed(numberFromAny(device.state || {}, "RoomTemp", "temperature"))} °C`} note="Latest device reading" tone="orange" />
@@ -853,7 +859,7 @@ function UserAccess() {
   const [error, setError] = useState("");
   const load = () => api<{ users: User[] }>("/users").then(r => setUsers(r.users)).catch(e => setError(e.message));
   const filteredUsers = users.filter(user =>
-    `${user.name} ${user.nickname || ""} ${user.email} ${user.role}`.toLowerCase().includes(query.toLowerCase())
+    `${user.name} ${user.nickname || ""} ${user.email || ""} ${user.phone || ""} ${user.role}`.toLowerCase().includes(query.toLowerCase())
   );
   useEffect(() => { load(); }, []);
 
@@ -865,8 +871,9 @@ function UserAccess() {
   }
 
   async function remove(user: User) {
-    const confirmation = window.prompt(`DANGER: This permanently deletes ${user.name}, all owned devices, and all their data.\n\nType ${user.email} to confirm.`);
-    if (confirmation !== user.email) return;
+    const contact = user.email || user.phone || "";
+    const confirmation = window.prompt(`DANGER: This permanently deletes ${user.name}, all owned devices, and all their data.\n\nType ${contact} to confirm.`);
+    if (confirmation !== contact) return;
     try {
       await api(`/users/${user.userId}`, { method: "DELETE", body: JSON.stringify({ confirmation }) });
       load();
@@ -875,11 +882,11 @@ function UserAccess() {
 
   return <main className="content">
     <div className="page-title"><div><span className="eyebrow">ADMINISTRATION</span><h1>User access</h1><p>Control who can access this organization and what they can do.</p></div><button className="primary-button compact" onClick={() => setShowForm(true)}><Plus size={18} /> Add user</button></div>
-    <div className="toolbar"><div className="input-search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, nickname, email or role" /></div></div>
+    <div className="toolbar"><div className="input-search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, nickname, email, phone or role" /></div></div>
     {error && <div className="error">{error}</div>}
     <section className="panel user-table">
       <div className="table-head"><span>User</span><span>Devices</span><span>Status</span><span>Actions</span></div>
-      {filteredUsers.map(user => <div className="table-row" key={user.userId}><div className="user-cell"><span className="avatar">{user.profilePhoto ? <img src={user.profilePhoto} alt="" /> : user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.nickname || user.name}</strong><small>{user.nickname ? `${user.name} · ` : ""}{user.email}{user.primaryAdmin ? " · Primary admin" : ""}</small></div></div><span className="role"><ShieldCheck size={15} /> {user.deviceCount || 0} / {user.deviceLimit === null ? "Unlimited" : user.deviceLimit ?? 1}</span><span className={user.active ? "status online" : "status"}><i />{user.active ? "Active" : "Disabled"}</span><div className="row-actions"><button className="text-button" onClick={() => setEditingUser(user)}>Edit</button><button className="text-button" disabled={user.primaryAdmin} onClick={() => toggle(user)}>{user.primaryAdmin ? "Protected" : user.active ? "Disable" : "Enable"}</button><button className="icon-danger" disabled={user.primaryAdmin} onClick={() => remove(user)} title="Permanently delete"><Trash2 size={16} /></button></div></div>)}
+      {filteredUsers.map(user => <div className="table-row" key={user.userId}><div className="user-cell"><span className="avatar">{user.profilePhoto ? <img src={user.profilePhoto} alt="" /> : user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.nickname || user.name}</strong><small>{user.nickname ? `${user.name} · ` : ""}{[user.email, user.phone].filter(Boolean).join(" · ")}{user.primaryAdmin ? " · Primary admin" : ""}</small></div></div><span className="role"><ShieldCheck size={15} /> {user.deviceCount || 0} / {user.deviceLimit === null ? "Unlimited" : user.deviceLimit ?? 1}</span><span className={user.active ? "status online" : "status"}><i />{user.active ? "Active" : "Disabled"}</span><div className="row-actions"><button className="text-button" onClick={() => setEditingUser(user)}>Edit</button><button className="text-button" disabled={user.primaryAdmin} onClick={() => toggle(user)}>{user.primaryAdmin ? "Protected" : user.active ? "Disable" : "Enable"}</button><button className="icon-danger" disabled={user.primaryAdmin} onClick={() => remove(user)} title="Permanently delete"><Trash2 size={16} /></button></div></div>)}
     </section>
     {showForm && <NewUser onClose={() => setShowForm(false)} onCreated={() => { setShowForm(false); load(); }} />}
     {editingUser && <EditUser user={editingUser} onClose={() => setEditingUser(null)} onSaved={() => { setEditingUser(null); load(); }} />}
@@ -887,7 +894,7 @@ function UserAccess() {
 }
 
 function EditUser({ user, onClose, onSaved }: { user: User; onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState({ nickname: user.nickname || "", role: user.role, active: user.active !== false, deviceLimit: user.deviceLimit ?? 1 });
+  const [form, setForm] = useState({ nickname: user.nickname || "", email: user.email || "", phone: user.phone || "", role: user.role, active: user.active !== false, deviceLimit: user.deviceLimit ?? 1 });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [temporaryPassword, setTemporaryPassword] = useState("");
@@ -914,8 +921,10 @@ function EditUser({ user, onClose, onSaved }: { user: User; onClose: () => void;
       setResetMessage("Temporary password set");
     } catch (e) { setError(e instanceof Error ? e.message : "Password reset failed"); }
   }
-  return <div className="modal-backdrop"><form className="modal" onSubmit={submit}><div className="modal-title"><div><h2>Manage user</h2><p>{user.name} · {user.email}</p></div><button type="button" onClick={onClose}><X /></button></div>
+  return <div className="modal-backdrop"><form className="modal" onSubmit={submit}><div className="modal-title"><div><h2>Manage user</h2><p>{user.name} · {user.email || user.phone}</p></div><button type="button" onClick={onClose}><X /></button></div>
     <label>Admin nickname<input value={form.nickname} onChange={e => setForm({ ...form, nickname: e.target.value })} maxLength={80} placeholder="Optional internal label" /></label>
+    <label>Email address<input type="email" disabled={user.primaryAdmin} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
+    <label>Phone number<input type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+964…" /></label>
     <label>Device allowance{user.primaryAdmin ? <input value="Unlimited" disabled /> : <input type="number" min={0} max={100} value={form.deviceLimit} onChange={e => setForm({ ...form, deviceLimit: Number(e.target.value) })} />}</label>
     <label>Access level<select disabled={user.primaryAdmin} value={form.role} onChange={e => setForm({ ...form, role: e.target.value as Role })}><option value="user">User</option><option value="admin">Administrator</option></select></label>
     <label className="checkbox-row"><input type="checkbox" disabled={user.primaryAdmin} checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} /> Account active</label>
@@ -925,7 +934,7 @@ function EditUser({ user, onClose, onSaved }: { user: User; onClose: () => void;
 }
 
 function NewUser({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState({ name: "", email: "", password: "", role: "user" as Role });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", role: "user" as Role });
   const [error, setError] = useState("");
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -936,7 +945,8 @@ function NewUser({ onClose, onCreated }: { onClose: () => void; onCreated: () =>
   }
   return <div className="modal-backdrop"><form className="modal" onSubmit={submit}><div className="modal-title"><div><h2>Add a user</h2><p>Create an account in your organization.</p></div><button type="button" onClick={onClose}><X /></button></div>
     <label>Full name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-    <label>Email<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required /></label>
+    <label>Email (optional)<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
+    <label>Phone (optional)<input type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+964…" /></label>
     <label>Temporary password<input type="password" minLength={8} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required /></label>
     <label>Access level<select value={form.role} onChange={e => setForm({ ...form, role: e.target.value as Role })}><option value="user">User — monitor and control devices</option><option value="admin">Admin — manage users and organization</option></select></label>
     {error && <div className="error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button compact">Create user</button></div>
@@ -945,9 +955,10 @@ function NewUser({ onClose, onCreated }: { onClose: () => void; onCreated: () =>
 
 function AlarmCenter() {
   const feed = useAlarms();
+  const { user } = useAuth();
   return <main className="content"><div className="page-title"><div><span className="eyebrow">NOTIFICATIONS</span><h1>Alarms</h1><p>Errors reported by devices assigned to you.</p></div>{feed.alarms.length > 0 && <button className="secondary-button" onClick={() => void feed.dismissAll()}><Trash2 size={16} /> Clear all</button>}</div>
     {feed.error && <div className="error">{feed.error}</div>}
-    <section className="panel alarm-center">{feed.alarms.map(alarm => <article className={alarm.read ? "" : "unread"} key={alarm._id}><span className="alarm-severity"><Bell size={18} /></span><div className="alarm-content"><div><strong>{alarm.deviceName}</strong><span className={alarm.resolvedAt ? "alarm-status resolved" : "alarm-status"}>{alarm.resolvedAt ? "Resolved" : "Active"}</span></div><p>{alarm.message}</p><small><code>{alarm.code}</code> · {new Date(alarm.createdAt).toLocaleString()}</small></div><div className="alarm-actions">{!alarm.read && <button className="text-button" onClick={() => void feed.read(alarm._id)}>Mark read</button>}<NavLink className="text-button" to={`/devices/${alarm.deviceId}`}>Open device</NavLink><button className="icon-danger" title="Dismiss alarm" onClick={() => void feed.dismiss(alarm._id)}><X size={16} /></button></div></article>)}{feed.alarms.length === 0 && <div className="empty"><Bell /><strong>No alarms</strong><span>Device errors and faults will appear here.</span></div>}</section>
+    <section className="panel alarm-center">{feed.alarms.map(alarm => <article className={`${alarm.read ? "" : "unread"} ${alarm.resolvedAt ? "resolved" : ""}`} key={alarm._id}><span className="alarm-severity"><Bell size={18} /></span><div className="alarm-content"><div><strong>{alarm.deviceName}</strong><span className={alarm.resolvedAt ? "alarm-status resolved" : "alarm-status"}>{alarm.resolvedAt ? "Resolved" : "Active"}</span></div><p>{alarm.message}</p>{user?.role === "admin" && <small className="alarm-owner">Owner: {alarm.owner ? alarm.owner.nickname ? `${alarm.owner.nickname} · ${alarm.owner.name}` : alarm.owner.name : "Unassigned"}</small>}<small><code>{alarm.code}</code> · {new Date(alarm.createdAt).toLocaleString()}</small></div><div className="alarm-actions">{!alarm.read && <button className="text-button" onClick={() => void feed.read(alarm._id)}>Mark read</button>}<NavLink className="text-button" to={`/devices/${alarm.deviceId}`}>Open device</NavLink><button className="icon-danger" title="Dismiss alarm" onClick={() => void feed.dismiss(alarm._id)}><X size={16} /></button></div></article>)}{feed.alarms.length === 0 && <div className="empty"><Bell /><strong>No alarms</strong><span>Device errors and faults will appear here.</span></div>}</section>
   </main>;
 }
 
@@ -986,6 +997,9 @@ function ProfileSettings() {
   const [name, setName] = useState(user?.name || "");
   const [profilePhoto, setProfilePhoto] = useState(user?.profilePhoto || "");
   const [theme, setTheme] = useState<Theme>(user?.theme || "default");
+  const [email, setEmail] = useState(user?.email || "");
+  const [phone, setPhone] = useState(user?.phone || "");
+  const [muteAlarmNotifications, setMuteAlarmNotifications] = useState(Boolean(user?.muteAlarmNotifications));
   const [confirmation, setConfirmation] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -1002,7 +1016,7 @@ function ProfileSettings() {
   async function save(event: FormEvent) {
     event.preventDefault(); setError(""); setMessage("");
     try {
-      const result = await api<{ user: User }>("/auth/me", { method: "PATCH", body: JSON.stringify({ name, profilePhoto, theme }) });
+      const result = await api<{ user: User }>("/auth/me", { method: "PATCH", body: JSON.stringify({ name, email, phone, profilePhoto, theme, muteAlarmNotifications }) });
       setCurrentUser(result.user); setMessage("Profile updated");
     } catch (e) { setError(e instanceof Error ? e.message : "Update failed"); }
   }
@@ -1029,7 +1043,7 @@ function ProfileSettings() {
     } catch (e) { setError(e instanceof Error ? e.message : "Could not change password"); }
   }
   return <main className="content"><div className="page-title"><div><span className="eyebrow">YOUR ACCOUNT</span><h1>Profile settings</h1><p>Update the identity shown in your panel.</p></div></div>
-    <section className="panel settings-panel"><form onSubmit={save}><div className="profile-photo"><span className="avatar large">{profilePhoto ? <img src={profilePhoto} alt="" /> : name.slice(0, 2).toUpperCase()}</span><label className="secondary-button compact"><Upload size={16} /> Choose photo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => choosePhoto(e.target.files?.[0])} hidden /></label></div><label>Display name<input value={name} onChange={e => setName(e.target.value)} maxLength={120} required /></label><label>Account theme<select value={theme} onChange={e => setTheme(e.target.value as Theme)}><option value="default">Default white</option><option value="dark">Night</option><option value="spring">Spring</option><option value="summer">Summer</option><option value="autumn">Autumn</option><option value="winter">Winter</option></select></label>{message && <div className="success">{message}</div>}{error && <div className="error">{error}</div>}<button className="primary-button compact">Save profile</button></form></section>
+    <section className="panel settings-panel"><form onSubmit={save}><div className="profile-photo"><span className="avatar large">{profilePhoto ? <img src={profilePhoto} alt="" /> : name.slice(0, 2).toUpperCase()}</span><label className="secondary-button compact"><Upload size={16} /> Choose photo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => choosePhoto(e.target.files?.[0])} hidden /></label></div><label>Display name<input value={name} onChange={e => setName(e.target.value)} maxLength={120} required /></label><label>Email address<input type="email" disabled={user.primaryAdmin} value={email} onChange={e => setEmail(e.target.value)} /><small>{user.primaryAdmin ? "The primary administrator email is controlled by the server environment." : "Keep an email or phone number on the account."}</small></label><label>Phone number<input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+964…" /></label><label>Account theme<select value={theme} onChange={e => setTheme(e.target.value as Theme)}><option value="default">Default white</option><option value="dark">Night</option><option value="spring">Spring</option><option value="summer">Summer</option><option value="autumn">Autumn</option><option value="winter">Winter</option></select></label>{user.role === "admin" && <label className="checkbox-row"><input type="checkbox" checked={muteAlarmNotifications} onChange={e => setMuteAlarmNotifications(e.target.checked)} /> Mute error notification bell <small>Alarms remain available on the Alarms page.</small></label>}{message && <div className="success">{message}</div>}{error && <div className="error">{error}</div>}<button className="primary-button compact">Save profile</button></form></section>
     {user.role === "admin" && <OrganizationSettings />}
     <section className="panel settings-panel"><form onSubmit={savePassword}><h2>Change password</h2><label>Current password<input type="password" autoComplete="current-password" value={passwords.currentPassword} onChange={e => setPasswords({ ...passwords, currentPassword: e.target.value })} required /></label><label>New password<input type="password" autoComplete="new-password" minLength={8} value={passwords.newPassword} onChange={e => setPasswords({ ...passwords, newPassword: e.target.value })} required /></label><label>Confirm new password<input type="password" autoComplete="new-password" minLength={8} value={passwords.confirmPassword} onChange={e => setPasswords({ ...passwords, confirmPassword: e.target.value })} required /></label>{passwordMessage && <div className="success">{passwordMessage}</div>}<button className="primary-button compact">Change password</button></form></section>
     {!user.primaryAdmin && <section className="panel danger-zone"><h2>Delete account</h2><p>This permanently removes your account, devices, telemetry, and command history. It cannot be recovered.</p><label>Type DELETE MY ACCOUNT<input value={confirmation} onChange={e => setConfirmation(e.target.value)} /></label><button className="danger-button" disabled={confirmation !== "DELETE MY ACCOUNT"} onClick={removeAccount}><Trash2 size={16} /> Permanently delete account</button></section>}
