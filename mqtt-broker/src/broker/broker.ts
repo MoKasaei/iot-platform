@@ -6,13 +6,30 @@ import {
 import axios from "axios";
 
 
-let broker: Aedes;
+const deviceDisconnectTimers =
+    new Map<string, NodeJS.Timeout>();
+
+
+const connectedDevices =
+    new Set<string>();
+
+
+const mqttDeviceMap =
+    new Map<string,string>();
+
+
+const backendClients =
+    new Set<string>();
+
+
+let broker:Aedes;
 
 
 const BACKEND_SERVICE_PREFIX = "service-";
 
 
-export async function createBroker(): Promise<void> {
+
+export async function createBroker():Promise<void>{
 
 
     console.log(
@@ -21,18 +38,23 @@ export async function createBroker(): Promise<void> {
     );
 
 
-    broker = await Aedes.createBroker();
+
+    broker =
+        await Aedes.createBroker();
 
 
-    broker.authenticate = async (
+
+    broker.authenticate =
+    async(
         client,
         username,
         password,
         callback
-    ) => {
+    )=>{
 
 
-        if (!username || !password) {
+        if(!username || !password){
+
 
             const error =
                 new Error(
@@ -49,6 +71,7 @@ export async function createBroker(): Promise<void> {
                 error,
                 false
             );
+
         }
 
 
@@ -63,17 +86,28 @@ export async function createBroker(): Promise<void> {
 
 
         /*
-            Backend service authentication
+            Backend services
 
-            Example:
-            clientId: service-backend-command
-            username: backend
-            password: backend123
+            clientId:
+            service-backend-command
+
+            username:
+            backend
         */
+
         if(
-            mqttUsername === process.env.MQTT_BACKEND_USERNAME &&
-            mqttPassword === process.env.MQTT_BACKEND_PASSWORD
+            mqttUsername ===
+            process.env.MQTT_BACKEND_USERNAME
+            &&
+            mqttPassword ===
+            process.env.MQTT_BACKEND_PASSWORD
         ){
+
+
+            backendClients.add(
+                client.id
+            );
+
 
             console.log(
                 "MQTT backend authenticated:",
@@ -85,18 +119,16 @@ export async function createBroker(): Promise<void> {
                 null,
                 true
             );
+
         }
+
 
 
 
         /*
             Device authentication
-
-            Example:
-            clientId: AHU001
-            username: ahu001
-            password: test123
         */
+
 
         const result =
             await authenticateDevice(
@@ -106,12 +138,22 @@ export async function createBroker(): Promise<void> {
 
 
 
-        if(result.allowed) {
+        if(result.allowed){
+
+
+            mqttDeviceMap.set(
+                client.id,
+                result.deviceId
+            );
 
 
             console.log(
                 "MQTT device authenticated:",
-                mqttUsername
+                {
+                    username:mqttUsername,
+                    clientId:client.id,
+                    deviceId:result.deviceId
+                }
             );
 
 
@@ -140,7 +182,10 @@ export async function createBroker(): Promise<void> {
             false
         );
 
+
     };
+
+
 
 
 
@@ -153,7 +198,7 @@ export async function createBroker(): Promise<void> {
 
     server.listen(
         1883,
-        () => {
+        ()=>{
 
             console.log("==============================");
             console.log(" MQTT Broker Started");
@@ -165,32 +210,31 @@ export async function createBroker(): Promise<void> {
 
 
 
+
+
+
     /*
-        Client connected
+        CONNECT
     */
+
 
     broker.on(
         "client",
         async(client)=>{
 
 
-            console.log(
-                "Client Connected:",
-                client.id
-            );
-
-
-
             /*
                 Ignore backend services
-
-                They are not IoT devices
             */
+
             if(
-                client.id.startsWith(
-                    BACKEND_SERVICE_PREFIX
-                )
+                backendClients.has(client.id)
             ){
+
+                console.log(
+                    "Backend service connected:",
+                    client.id
+                );
 
                 return;
 
@@ -198,19 +242,59 @@ export async function createBroker(): Promise<void> {
 
 
 
-            try {
+            const deviceId =
+                mqttDeviceMap.get(client.id)
+                ||
+                client.id;
+
+
+
+            console.log(
+                "Client Connected:",
+                {
+                    clientId:client.id,
+                    deviceId
+                }
+            );
+
+
+
+            connectedDevices.add(
+                deviceId
+            );
+
+
+
+            const timer =
+                deviceDisconnectTimers.get(
+                    deviceId
+                );
+
+
+            if(timer){
+
+                clearTimeout(timer);
+
+                deviceDisconnectTimers.delete(
+                    deviceId
+                );
+
+            }
+
+
+
+            try{
 
 
                 await axios.post(
                     "http://localhost:3000/internal/device/online",
                     {
-                        deviceId:client.id
+                        deviceId
                     }
                 );
 
 
-            } catch(error){
-
+            }catch(error){
 
                 console.error(
                     "Device online update failed",
@@ -225,27 +309,38 @@ export async function createBroker(): Promise<void> {
 
 
 
+
+
+
+
+
     /*
-        Client disconnected
+        DISCONNECT
     */
+
 
     broker.on(
         "clientDisconnect",
         async(client)=>{
 
 
-            console.log(
-                "Client Disconnected:",
-                client.id
-            );
-
+            /*
+                Ignore backend services
+            */
 
 
             if(
-                client.id.startsWith(
-                    BACKEND_SERVICE_PREFIX
-                )
+                backendClients.has(client.id)
             ){
+
+                backendClients.delete(
+                    client.id
+                );
+
+                console.log(
+                    "Backend service disconnected:",
+                    client.id
+                );
 
                 return;
 
@@ -253,26 +348,89 @@ export async function createBroker(): Promise<void> {
 
 
 
-            try {
+            const deviceId =
+                mqttDeviceMap.get(client.id)
+                ||
+                client.id;
 
 
-                await axios.post(
-                    "http://localhost:3000/internal/device/offline",
-                    {
-                        deviceId:client.id
-                    }
+
+            console.log(
+                "Client Disconnected:",
+                {
+                    clientId:client.id,
+                    deviceId
+                }
+            );
+
+
+
+            connectedDevices.delete(
+                deviceId
+            );
+
+
+
+            const timer =
+                setTimeout(
+                    async()=>{
+
+
+                        if(
+                            connectedDevices.has(deviceId)
+                        ){
+
+                            return;
+
+                        }
+
+
+
+                        console.log(
+                            "Marking device offline:",
+                            deviceId
+                        );
+
+
+
+                        try{
+
+
+                            await axios.post(
+                                "http://localhost:3000/internal/device/offline",
+                                {
+                                    deviceId
+                                }
+                            );
+
+
+                        }catch(error){
+
+                            console.error(
+                                "Device offline update failed",
+                                error
+                            );
+
+                        }
+
+
+
+                    },
+                    10000
                 );
 
 
-            } catch(error){
+
+            deviceDisconnectTimers.set(
+                deviceId,
+                timer
+            );
 
 
-                console.error(
-                    "Device offline update failed",
-                    error
-                );
 
-            }
+            mqttDeviceMap.delete(
+                client.id
+            );
 
 
         }
@@ -281,13 +439,18 @@ export async function createBroker(): Promise<void> {
 
 
 
+
+
+
+
     /*
-        MQTT messages
+        MQTT MESSAGE HANDLING
     */
+
 
     broker.on(
         "publish",
-        async(packet, client)=>{
+        async(packet,client)=>{
 
 
             if(!client)
@@ -295,17 +458,8 @@ export async function createBroker(): Promise<void> {
 
 
 
-            /*
-                Ignore backend service messages
-
-                Example:
-                service-backend-command
-            */
-
             if(
-                client.id.startsWith(
-                    BACKEND_SERVICE_PREFIX
-                )
+                backendClients.has(client.id)
             ){
 
                 return;
@@ -323,11 +477,12 @@ export async function createBroker(): Promise<void> {
                 TELEMETRY
             */
 
+
             if(
                 topic.includes("/telemetry")
             ){
 
-                try {
+                try{
 
 
                     const parts =
@@ -340,7 +495,6 @@ export async function createBroker(): Promise<void> {
 
                     const deviceId =
                         parts[4];
-
 
 
                     const data =
@@ -370,9 +524,15 @@ export async function createBroker(): Promise<void> {
                         }
                     );
 
+                    
+                    await axios.post(
+                        "http://localhost:3000/internal/device/heartbeat",
+                        {
+                            deviceId
+                        }
+                    );
 
-                }
-                catch(error){
+                }catch(error){
 
 
                     console.error(
@@ -390,15 +550,17 @@ export async function createBroker(): Promise<void> {
 
 
 
+
             /*
                 COMMAND ACK
             */
+
 
             if(
                 topic.includes("/command/ack")
             ){
 
-                try {
+                try{
 
 
                     const parts =
@@ -441,10 +603,14 @@ export async function createBroker(): Promise<void> {
                         }
                     );
 
-                    console.log("Command ACK forwarded successfully");
 
-                }
-                catch(error){
+
+                    console.log(
+                        "Command ACK forwarded successfully"
+                    );
+
+
+                }catch(error){
 
 
                     console.error(
@@ -453,6 +619,7 @@ export async function createBroker(): Promise<void> {
                     );
 
                 }
+
 
 
                 return;

@@ -6,13 +6,14 @@ const BACKEND_URL =
     "http://localhost:3000";
 
 
-export async function authenticateDevice(
-    username: string,
-    password: string
-) {
 
+export async function authenticateDevice(
+    username:string,
+    password:string
+){
 
     try {
+
 
         const response =
             await axios.post(
@@ -27,7 +28,7 @@ export async function authenticateDevice(
         return response.data;
 
 
-    } catch(error) {
+    } catch(error){
 
 
         console.error(

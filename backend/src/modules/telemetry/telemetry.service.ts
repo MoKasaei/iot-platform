@@ -1,4 +1,5 @@
 import Telemetry from "./telemetry.model";
+import Device from "../devices/device.model";
 
 
 export async function saveTelemetry(
@@ -18,4 +19,14 @@ export async function saveTelemetry(
 
     });
 
+    await Device.updateOne(
+        {
+            organizationId,
+            deviceId
+        },
+        {
+            online:true,
+            lastSeen:new Date()
+        }
+    );
 }

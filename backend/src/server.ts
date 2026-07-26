@@ -10,6 +10,10 @@ import { seedDeviceTypes } from "./modules/device-types/device-type.service";
 
 import { seedDevices } from "./modules/devices/device.service";
 
+import "./modules/devices/device.worker";
+
+import { startDeviceMonitor } from "./modules/devices/device.monitor";
+
 async function start() {
 
     await connectMongoDB();
@@ -20,6 +24,7 @@ async function start() {
 
     await seedDevices();
 
+    startDeviceMonitor();
 
     app.listen(env.port, () => {
 

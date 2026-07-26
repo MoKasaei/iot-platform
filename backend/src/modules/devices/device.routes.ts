@@ -2,7 +2,8 @@ import { Router } from "express";
 
 import {
     deviceOnline,
-    deviceOffline
+    deviceOffline,
+    deviceHeartbeat
 } from "./device.controller";
 
 
@@ -18,6 +19,12 @@ router.post(
 router.post(
     "/internal/device/offline",
     deviceOffline
+);
+
+
+router.post(
+    "/internal/device/heartbeat",
+    deviceHeartbeat
 );
 
 

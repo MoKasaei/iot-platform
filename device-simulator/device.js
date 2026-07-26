@@ -8,7 +8,7 @@ const DEVICE_ID = "AHU001";
 const client = mqtt.connect(
     "mqtt://localhost:1883",
     {
-        clientId: DEVICE_ID,
+        clientId: DEVICE_ID + "-" + Date.now(),
         username: "ahu001",
         password: "test123"
     }
@@ -22,6 +22,43 @@ const commandTopic =
 const ackTopic =
     `v1/organization/${ORGANIZATION_ID}/device/${DEVICE_ID}/command/ack`;
 
+const telemetryTopic =
+    `v1/organization/${ORGANIZATION_ID}/device/${DEVICE_ID}/telemetry`;
+
+
+function sendTelemetry(){
+
+    const telemetry = {
+
+        temperature:
+            20 + Math.random() * 5,
+
+        humidity:
+            40 + Math.random() * 10,
+
+        uptime:
+            Math.floor(
+                process.uptime()
+            )
+
+    };
+
+
+    client.publish(
+        telemetryTopic,
+        JSON.stringify(telemetry),
+        {
+            qos:1
+        }
+    );
+
+
+    console.log(
+        "Telemetry sent:",
+        telemetry
+    );
+
+}
 
 
 client.on("connect", () => {
@@ -45,6 +82,16 @@ client.on("connect", () => {
                 );
 
         }
+    );
+
+    // send immediately after boot
+    sendTelemetry();
+
+
+    // heartbeat every 30 seconds
+    setInterval(
+        sendTelemetry,
+        30000
     );
 
 });
@@ -133,5 +180,26 @@ client.on(
             "MQTT error",
             err
         );
+    }
+);
+
+
+
+process.on(
+    "SIGINT",
+    ()=>{
+
+        console.log(
+            "Device shutting down"
+        );
+
+
+        client.end(
+            true,
+            ()=>{
+                process.exit();
+            }
+        );
+
     }
 );
