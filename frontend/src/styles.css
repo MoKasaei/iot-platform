@@ -72,6 +72,7 @@
 .password-reset-box p{font-size:.75rem;color:var(--muted);margin:3px 0}
 .password-reset-box .secondary-button{width:100%}
 .theme-dark .password-reset-box{border-color:#445166}
+.theme-dark .live{background:#1b2432;color:#d8e5ed;border-color:#445166}
 .map-search{display:flex;align-items:center;gap:9px;margin-top:20px;border:1px solid #d7deea;border-radius:10px;padding:5px 6px 5px 12px}
 .map-search svg{color:#8793a2;min-width:17px}
 .map-search input{flex:1;min-width:0;border:0;outline:0;padding:8px;background:transparent;color:inherit}
