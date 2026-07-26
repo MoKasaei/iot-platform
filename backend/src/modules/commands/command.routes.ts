@@ -10,7 +10,7 @@ const router = Router();
 
 
 router.post(
-    "/command",
+    "/:deviceId/command",
     sendCommand
 );
 

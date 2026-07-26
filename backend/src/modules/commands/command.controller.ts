@@ -10,18 +10,25 @@ export async function sendCommand(
 
     try {
 
+        const deviceId = String(req.params.deviceId);
+
         const {
-            organizationId,
-            deviceId,
-            command
+            command,
+            value
         } = req.body;
+
+
+        const organizationId = "ORG001";
 
 
         const result =
             await sendDeviceCommand(
                 organizationId,
                 deviceId,
-                command
+                {
+                    command,
+                    value
+                }
             );
 
 

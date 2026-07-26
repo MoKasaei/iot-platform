@@ -1,65 +1,6 @@
-import mqtt from "mqtt";
+import {publish,isMqttConnected} from "../../mqtt/publisher";
 import Command from "./command.model";
 
-
-const client = mqtt.connect(
-    "mqtt://localhost:1883",
-    {
-        username:"backend",
-        password:"backend123",
-        clientId:"service-backend-command"
-    }
-);
-
-
-
-client.on("connect", () => {
-
-    console.log(
-        "Command MQTT client connected"
-    );
-
-});
-
-
-client.on("error", (err)=>{
-
-    console.error(
-        "Command MQTT error",
-        err
-    );
-
-});
-
-
-function mqttPublish(
-    topic:string,
-    payload:any
-):Promise<void>{
-
-    return new Promise(
-        (resolve,reject)=>{
-
-            client.publish(
-                topic,
-                JSON.stringify(payload),
-                {
-                    qos:1
-                },
-                (error)=>{
-
-                    if(error)
-                        reject(error);
-                    else
-                        resolve();
-
-                }
-            );
-
-        }
-    );
-
-}
 
 export async function sendDeviceCommand(
     organizationId:string,
@@ -90,8 +31,7 @@ export async function sendDeviceCommand(
 
 
 
-    if(!client.connected){
-
+    if(!isMqttConnected()) {
 
         await Command.updateOne(
             {
@@ -120,7 +60,7 @@ export async function sendDeviceCommand(
     try {
 
 
-        await mqttPublish(
+        await publish(
             topic,
             {
 
@@ -185,5 +125,30 @@ export async function sendDeviceCommand(
 
 
     return commandRecord;
+
+}
+
+
+export async function acknowledgeCommand(
+    commandId:string,
+    result:any
+){
+
+    await Command.updateOne(
+        {
+            _id:commandId
+        },
+        {
+            status:"completed",
+            acknowledgedAt:new Date(),
+            result
+        }
+    );
+
+
+    console.log(
+        "Command completed:",
+        commandId
+    );
 
 }

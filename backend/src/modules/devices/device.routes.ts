@@ -1,11 +1,12 @@
 import { Router } from "express";
-
 import {
     deviceOnline,
     deviceOffline,
     deviceHeartbeat
 } from "./device.controller";
-
+import {
+    getDeviceState
+} from "./device.controller";
 
 const router = Router();
 
@@ -25,6 +26,12 @@ router.post(
 router.post(
     "/internal/device/heartbeat",
     deviceHeartbeat
+);
+
+
+router.get(
+    "/:deviceId",
+    getDeviceState
 );
 
 

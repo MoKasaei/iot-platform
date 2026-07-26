@@ -3,13 +3,13 @@ import { Schema, model, Document } from "mongoose";
 
 export interface ITelemetry extends Document {
 
-    organizationId: string;
+    organizationId:string;
 
-    deviceId: string;
+    deviceId:string;
 
-    timestamp: Date;
+    timestamp:Date;
 
-    data: Record<string, unknown>;
+    data:Record<string, unknown>;
 
 }
 
@@ -18,47 +18,54 @@ export interface ITelemetry extends Document {
 const TelemetrySchema = new Schema<ITelemetry>(
 {
 
-    organizationId: {
-        type: String,
-        required: true,
-        index: true
+    organizationId:{
+        type:String,
+        required:true
     },
 
 
-    deviceId: {
-        type: String,
-        required: true,
-        index: true
+    deviceId:{
+        type:String,
+        required:true
     },
 
 
-    timestamp: {
-        type: Date,
-        default: Date.now,
+    timestamp:{
+        type:Date,
+        default:Date.now
     },
 
 
-    data: {
-        type: Schema.Types.Mixed,
-        required: true
+    data:{
+        type:Schema.Types.Mixed,
+        required:true
     }
 
-},
-{
-    timestamps: true
 });
 
 
-// Automatically delete data older than 7 days
-TelemetrySchema.index(
-    {
-        timestamp: 1
-    },
-    {
-        expireAfterSeconds: 604800
-    }
-);
 
+// Fast history lookup
+TelemetrySchema.index({
+
+    organizationId:1,
+
+    deviceId:1,
+
+    timestamp:-1
+
+});
+
+
+
+// Delete telemetry older than 7 days
+TelemetrySchema.index(
+{
+    timestamp:1
+},
+{
+    expireAfterSeconds:604800
+});
 
 
 export default model<ITelemetry>(

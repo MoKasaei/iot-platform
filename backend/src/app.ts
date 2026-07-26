@@ -35,6 +35,7 @@ app.use(
 
 
 app.use(
+    "/api/devices",
     deviceRoutes
 );
 

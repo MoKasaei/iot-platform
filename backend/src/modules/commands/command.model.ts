@@ -3,16 +3,13 @@ import { Schema, model, Document } from "mongoose";
 
 export interface ICommand extends Document {
 
-    organizationId: string;
+    organizationId:string;
 
-    deviceId: string;
+    deviceId:string;
 
-    command: {
-
-        command: string;
-
-        value?: any;
-
+    command:{
+        command:string;
+        value?:unknown;
     };
 
     status:
@@ -23,14 +20,13 @@ export interface ICommand extends Document {
         | "failed"
         | "timeout";
 
+    createdAt:Date;
 
-    createdAt: Date;
+    sentAt?:Date;
 
-    sentAt?: Date;
+    acknowledgedAt?:Date;
 
-    acknowledgedAt?: Date;
-
-    result?: any;
+    result?:unknown;
 
 }
 
@@ -39,27 +35,26 @@ export interface ICommand extends Document {
 const CommandSchema = new Schema<ICommand>(
 {
 
-    organizationId: {
+    organizationId:{
         type:String,
         required:true,
         index:true
     },
 
 
-    deviceId: {
+    deviceId:{
         type:String,
         required:true,
         index:true
     },
 
 
-    command: {
+    command:{
 
         command:{
             type:String,
             required:true
         },
-
 
         value:{
             type:Schema.Types.Mixed
@@ -103,6 +98,22 @@ const CommandSchema = new Schema<ICommand>(
     timestamps:true
 });
 
+
+// Command history lookup
+CommandSchema.index({
+    deviceId:1,
+    createdAt:-1
+});
+
+
+// Remove old commands after 7 days
+CommandSchema.index(
+{
+    createdAt:1
+},
+{
+    expireAfterSeconds:604800
+});
 
 
 export default model<ICommand>(
