@@ -14,7 +14,7 @@ import {
 import { api } from "./api";
 import { useAuth } from "./auth";
 import type {
-  Device, DeviceCredentials, DeviceType, Organization, Role, TelemetryPoint, Theme, User,
+  Alarm, Device, DeviceCredentials, DeviceType, Organization, Role, TelemetryPoint, Theme, User,
   WeatherReading
 } from "./types";
 
@@ -105,10 +105,36 @@ function Register() {
   </form></section></main>;
 }
 
+function useAlarms() {
+  const [alarms, setAlarms] = useState<Alarm[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [error, setError] = useState("");
+  const load = () => api<{ alarms: Alarm[]; unreadCount: number }>("/alarms")
+    .then(response => { setAlarms(response.alarms); setUnreadCount(response.unreadCount); setError(""); })
+    .catch(loadError => setError(loadError.message));
+  useEffect(() => {
+    void load();
+    const interval = window.setInterval(load, 5000);
+    return () => window.clearInterval(interval);
+  }, []);
+  async function read(alarmId: string) {
+    await api(`/alarms/${alarmId}/read`, { method: "PATCH" }); await load();
+  }
+  async function dismiss(alarmId: string) {
+    await api(`/alarms/${alarmId}`, { method: "DELETE" }); await load();
+  }
+  async function dismissAll() {
+    await api("/alarms", { method: "DELETE" }); await load();
+  }
+  return { alarms, unreadCount, error, read, dismiss, dismissAll, refresh: load };
+}
+
 function Shell() {
   const { user, loading, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const [organization, setOrganization] = useState<Organization | null>(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const alarmFeed = useAlarms();
   useEffect(() => {
     if (user) api<{ organization: Organization }>("/organizations/current")
       .then(response => setOrganization(response.organization))
@@ -141,13 +167,13 @@ function Shell() {
       </div>
     </aside>
     <div className="workspace">
-      <header><button className="menu-button" onClick={() => setOpen(true)}><Menu /></button><div className="header-right"><span className="org-chip">{organization?.code || user.organizationId}</span><Bell size={20} /></div></header>
+      <header><button className="menu-button" onClick={() => setOpen(true)}><Menu /></button><div className="header-right"><span className="org-chip">{organization?.code || user.organizationId}</span><div className="notification-wrap"><button className="notification-button" onClick={() => setShowNotifications(value => !value)} aria-label="Notifications"><Bell size={20} />{alarmFeed.unreadCount > 0 && <b>{Math.min(alarmFeed.unreadCount, 99)}</b>}</button>{showNotifications && <div className="notification-panel"><div className="notification-head"><div><strong>Alarms</strong><small>{alarmFeed.unreadCount} unread</small></div><NavLink to="/alerts" onClick={() => setShowNotifications(false)}>View all</NavLink></div><div className="notification-list">{alarmFeed.alarms.slice(0, 6).map(alarm => <article className={alarm.read ? "" : "unread"} key={alarm._id}><span className="alarm-dot" /><div><strong>{alarm.deviceName}</strong><p>{alarm.message}</p><small>{new Date(alarm.createdAt).toLocaleString()}</small></div><div className="notification-actions">{!alarm.read && <button title="Mark as read" onClick={() => void alarmFeed.read(alarm._id)}>Read</button>}<button title="Dismiss" onClick={() => void alarmFeed.dismiss(alarm._id)}><X size={14} /></button></div></article>)}{alarmFeed.alarms.length === 0 && <div className="notification-empty">No alarms</div>}</div></div>}</div></div></header>
       <Routes>
         <Route path="/" element={<Overview />} />
         <Route path="/devices" element={<Devices />} />
         <Route path="/devices/:deviceId" element={<DeviceDetail />} />
         <Route path="/users" element={user.role === "admin" ? <UserAccess /> : <Navigate to="/" />} />
-        <Route path="/alerts" element={<Placeholder title="Alerts" text="Alarm rules and event history will appear here." />} />
+        <Route path="/alerts" element={<AlarmCenter />} />
         <Route path="/settings" element={<ProfileSettings />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
@@ -316,9 +342,25 @@ function Stat({ icon: Icon, label, value, note, tone = "" }: { icon: typeof Box;
   return <article className={`stat ${tone}`}><div className="stat-icon"><Icon size={20} /></div><span>{label}</span><strong>{value}</strong><small>{note}</small></article>;
 }
 
+function deviceErrors(state: Record<string, unknown> | undefined) {
+  if (!state) return [];
+  return Object.entries(state).flatMap(([key, value]) => {
+    if (!/(error|fault|alarm)/i.test(key)) return [];
+    const normal = [undefined, null, false, 0, "0", "", "false", "none", "ok"];
+    const normalized = typeof value === "string" ? value.toLowerCase() : value;
+    if (normal.includes(normalized as never)) return [];
+    if (Array.isArray(value)) return value.map(entry => `${key}: ${String(entry)}`);
+    if (value && typeof value === "object") return Object.entries(value)
+      .filter(([, entry]) => !normal.includes(entry as never))
+      .map(([code, entry]) => `${key}.${code}: ${String(entry)}`);
+    return [`${key}: ${String(value)}`];
+  });
+}
+
 function DeviceRow({ device, showOwner }: { device: Device; showOwner?: boolean }) {
   const readings = getDisplayReadings(device.state || {});
-  return <NavLink className="device-row" to={`/devices/${device.deviceId}`}><div className="device-icon"><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.typeName || device.typeId}{showOwner ? ` · ID: ${device.deviceId} · ${device.owner ? device.owner.nickname ? `${device.owner.nickname} · ${device.owner.name}` : device.owner.name : "Unassigned"}` : ""}</small></div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{readings.map(reading => <span key={reading.label}><small>{reading.label}</small>{reading.value}</span>)}</div><ChevronRight className="row-arrow" /></NavLink>;
+  const errors = deviceErrors(device.state);
+  return <NavLink className="device-row" to={`/devices/${device.deviceId}`}><div className={`device-icon ${errors.length ? "has-error" : ""}`}><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.typeName || device.typeId}{showOwner ? ` · ID: ${device.deviceId} · ${device.owner ? device.owner.nickname ? `${device.owner.nickname} · ${device.owner.name}` : device.owner.name : "Unassigned"}` : ""}</small>{errors.length > 0 && <span className="device-error-badge">{errors[0]}{errors.length > 1 ? ` +${errors.length - 1}` : ""}</span>}</div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{readings.map(reading => <span key={reading.label}><small>{reading.label}</small>{reading.value}</span>)}</div><ChevronRight className="row-arrow" /></NavLink>;
 }
 
 function Devices() {
@@ -899,6 +941,14 @@ function NewUser({ onClose, onCreated }: { onClose: () => void; onCreated: () =>
     <label>Access level<select value={form.role} onChange={e => setForm({ ...form, role: e.target.value as Role })}><option value="user">User — monitor and control devices</option><option value="admin">Admin — manage users and organization</option></select></label>
     {error && <div className="error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button compact">Create user</button></div>
   </form></div>;
+}
+
+function AlarmCenter() {
+  const feed = useAlarms();
+  return <main className="content"><div className="page-title"><div><span className="eyebrow">NOTIFICATIONS</span><h1>Alarms</h1><p>Errors reported by devices assigned to you.</p></div>{feed.alarms.length > 0 && <button className="secondary-button" onClick={() => void feed.dismissAll()}><Trash2 size={16} /> Clear all</button>}</div>
+    {feed.error && <div className="error">{feed.error}</div>}
+    <section className="panel alarm-center">{feed.alarms.map(alarm => <article className={alarm.read ? "" : "unread"} key={alarm._id}><span className="alarm-severity"><Bell size={18} /></span><div className="alarm-content"><div><strong>{alarm.deviceName}</strong><span className={alarm.resolvedAt ? "alarm-status resolved" : "alarm-status"}>{alarm.resolvedAt ? "Resolved" : "Active"}</span></div><p>{alarm.message}</p><small><code>{alarm.code}</code> · {new Date(alarm.createdAt).toLocaleString()}</small></div><div className="alarm-actions">{!alarm.read && <button className="text-button" onClick={() => void feed.read(alarm._id)}>Mark read</button>}<NavLink className="text-button" to={`/devices/${alarm.deviceId}`}>Open device</NavLink><button className="icon-danger" title="Dismiss alarm" onClick={() => void feed.dismiss(alarm._id)}><X size={16} /></button></div></article>)}{feed.alarms.length === 0 && <div className="empty"><Bell /><strong>No alarms</strong><span>Device errors and faults will appear here.</span></div>}</section>
+  </main>;
 }
 
 function OrganizationSettings() {

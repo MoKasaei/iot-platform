@@ -8,6 +8,7 @@ import { env } from "../../config/env";
 import Device from "../devices/device.model";
 import Telemetry from "../telemetry/telemetry.model";
 import Command from "../commands/command.model";
+import Alarm from "../alarms/alarm.model";
 
 const registrationWindows = new Map<string, { count: number; resetAt: number }>();
 const CAPTCHA_TTL_MS = 5 * 60 * 1000;
@@ -29,7 +30,8 @@ async function deleteUserData(userId: string, organizationId: string) {
     await Promise.all([
         Telemetry.deleteMany({ organizationId, deviceId: { $in: ids } }),
         Command.deleteMany({ organizationId, deviceId: { $in: ids } }),
-        Device.deleteMany({ organizationId, ownerUserId: userId })
+        Device.deleteMany({ organizationId, ownerUserId: userId }),
+        Alarm.deleteMany({ organizationId, ownerUserId: userId })
     ]);
 }
 

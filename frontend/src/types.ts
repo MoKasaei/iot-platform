@@ -75,3 +75,15 @@ export interface WeatherReading {
   sourceLongitude: number;
   distanceKm: number;
 }
+
+export interface Alarm {
+  _id: string;
+  deviceId: string;
+  deviceName: string;
+  code: string;
+  value: string;
+  message: string;
+  read: boolean;
+  resolvedAt?: string;
+  createdAt: string;
+}
