@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { saveTelemetry } from "./telemetry.service";
 import Device from "../devices/device.model";
 import Telemetry from "./telemetry.model";
+import { AuthRequest } from "../../middleware/auth.middleware";
 
 
 export async function receiveTelemetry(
@@ -105,7 +106,7 @@ export async function receiveTelemetry(
 
 
 export async function getTelemetry(
-    req:Request,
+    req:AuthRequest,
     res:Response
 ){
 
@@ -123,7 +124,8 @@ export async function getTelemetry(
 
         const data =
             await Telemetry.find({
-                deviceId
+                deviceId,
+                organizationId: req.user!.organizationId
             })
             .sort({
                 timestamp:-1

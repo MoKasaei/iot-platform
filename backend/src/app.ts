@@ -7,6 +7,8 @@ import mqttAuthRoutes from "./modules/mqtt-auth/mqtt-auth.routes";
 import telemetryRoutes from "./modules/telemetry/telemetry.routes";
 import deviceRoutes from "./modules/devices/device.routes";
 import commandRoutes from "./modules/commands/command.routes";
+import authRoutes from "./modules/auth/auth.routes";
+import userRoutes from "./modules/users/user.routes";
 
 
 const app = express();
@@ -15,6 +17,9 @@ const app = express();
 app.use(cors());
 app.use(helmet());
 app.use(express.json());
+
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
 
 
 app.use(

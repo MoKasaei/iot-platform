@@ -13,6 +13,7 @@ import { seedDevices } from "./modules/devices/device.service";
 import "./modules/devices/device.worker";
 
 import { startDeviceMonitor } from "./modules/devices/device.monitor";
+import { seedAdmin } from "./modules/users/user.service";
 
 async function start() {
 
@@ -23,6 +24,7 @@ async function start() {
     await seedDeviceTypes();
 
     await seedDevices();
+    await seedAdmin();
 
     startDeviceMonitor();
 

@@ -4,6 +4,14 @@ import {
     setDeviceOffline
 } from "./device.service";
 import Device from "./device.model";
+import { AuthRequest } from "../../middleware/auth.middleware";
+
+export async function listDevices(req: AuthRequest, res: Response) {
+    const devices = await Device.find({ organizationId: req.user!.organizationId })
+        .select("-mqtt.passwordHash")
+        .sort({ name: 1 });
+    return res.json({ success: true, devices });
+}
 
 
 export async function deviceOnline(
@@ -71,7 +79,7 @@ export async function deviceHeartbeat(
 
 
 export async function getDeviceState(
-    req: Request,
+    req: AuthRequest,
     res: Response
 ){
 
@@ -84,7 +92,8 @@ export async function getDeviceState(
 
         const device =
             await Device.findOne({
-                deviceId
+                deviceId,
+                organizationId: req.user!.organizationId
             });
 
 

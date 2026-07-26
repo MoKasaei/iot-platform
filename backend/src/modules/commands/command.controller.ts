@@ -1,10 +1,12 @@
 import { Request, Response } from "express";
 import { sendDeviceCommand } from "./command.service";
 import Command from "./command.model";
+import { AuthRequest } from "../../middleware/auth.middleware";
+import Device from "../devices/device.model";
 
 
 export async function sendCommand(
-    req:Request,
+    req:AuthRequest,
     res:Response
 ){
 
@@ -18,7 +20,12 @@ export async function sendCommand(
         } = req.body;
 
 
-        const organizationId = "ORG001";
+        const organizationId = req.user!.organizationId;
+
+        const deviceExists = await Device.exists({ deviceId, organizationId });
+        if (!deviceExists) {
+            return res.status(404).json({ success: false, error: "Device not found" });
+        }
 
 
         const result =

@@ -1,0 +1,27 @@
+import bcrypt from "bcrypt";
+import { randomUUID } from "crypto";
+import User from "./user.model";
+
+export async function seedAdmin() {
+    const email = process.env.ADMIN_EMAIL;
+    const password = process.env.ADMIN_PASSWORD;
+
+    if (!email || !password) {
+        console.warn("ADMIN_EMAIL/ADMIN_PASSWORD not set; admin seed skipped");
+        return;
+    }
+    if (password.length < 8) {
+        throw new Error("ADMIN_PASSWORD must be at least 8 characters");
+    }
+    if (await User.exists({ email: email.toLowerCase() })) return;
+
+    await User.create({
+        userId: randomUUID(),
+        organizationId: process.env.ADMIN_ORGANIZATION_ID || "ORG001",
+        name: process.env.ADMIN_NAME || "Platform Administrator",
+        email,
+        passwordHash: await bcrypt.hash(password, 12),
+        role: "admin"
+    });
+    console.log("Default admin created");
+}

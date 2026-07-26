@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Production and test output
+dist/
+build/
+coverage/
+
+# Local environment files (keep templates in Git)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Tool and editor files
+.cache/
+.vite/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# TypeScript incremental build data
+*.tsbuildinfo

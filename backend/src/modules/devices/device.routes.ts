@@ -7,6 +7,8 @@ import {
 import {
     getDeviceState
 } from "./device.controller";
+import { listDevices } from "./device.controller";
+import { requireAuth } from "../../middleware/auth.middleware";
 
 const router = Router();
 
@@ -29,8 +31,11 @@ router.post(
 );
 
 
+router.get("/", requireAuth, listDevices);
+
 router.get(
     "/:deviceId",
+    requireAuth,
     getDeviceState
 );
 

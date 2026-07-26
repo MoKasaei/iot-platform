@@ -4,6 +4,7 @@ import {
     sendCommand,
     commandAck
 } from "./command.controller";
+import { requireAuth } from "../../middleware/auth.middleware";
 
 
 const router = Router();
@@ -11,6 +12,7 @@ const router = Router();
 
 router.post(
     "/:deviceId/command",
+    requireAuth,
     sendCommand
 );
 
