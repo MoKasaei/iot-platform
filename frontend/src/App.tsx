@@ -506,7 +506,7 @@ function DeviceDetail() {
   const [device, setDevice] = useState<Device | null>(null);
   const [telemetry, setTelemetry] = useState<TelemetryPoint[]>([]);
   const [weather, setWeather] = useState<WeatherReading | null>(null);
-  const [location, setLocation] = useState({ latitude: 35.6892, longitude: 51.389, label: "" });
+  const [location, setLocation] = useState({ latitude: 36.1911, longitude: 44.0092, label: "Erbil" });
   const [nameDraft, setNameDraft] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [showLocation, setShowLocation] = useState(false);
@@ -515,6 +515,11 @@ function DeviceDetail() {
   const [owners, setOwners] = useState<User[]>([]);
   const [ownerUserId, setOwnerUserId] = useState("");
   const [savingOwner, setSavingOwner] = useState(false);
+  const [locationQuery, setLocationQuery] = useState("");
+  const [locationResults, setLocationResults] = useState<Array<{
+    id: number; name: string; latitude: number; longitude: number; admin1?: string; country?: string;
+  }>>([]);
+  const [searchingLocation, setSearchingLocation] = useState(false);
 
   async function loadWeather() {
     try {
@@ -617,6 +622,23 @@ function DeviceDetail() {
     } finally { setSavingOwner(false); }
   }
 
+  async function searchLocation(event: FormEvent) {
+    event.preventDefault();
+    const query = locationQuery.trim();
+    if (query.length < 2) return;
+    setSearchingLocation(true); setError("");
+    try {
+      const response = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=6&language=en&format=json`
+      );
+      if (!response.ok) throw new Error("Location search is temporarily unavailable");
+      const body = await response.json();
+      setLocationResults(Array.isArray(body.results) ? body.results : []);
+    } catch (searchError) {
+      setError(searchError instanceof Error ? searchError.message : "Could not search locations");
+    } finally { setSearchingLocation(false); }
+  }
+
   if (!device) {
     return <main className="content"><div className="loading-text">Loading device history...</div>{error && <div className="error">{error}</div>}</main>;
   }
@@ -675,6 +697,8 @@ function DeviceDetail() {
 
     {showLocation && <div className="modal-backdrop"><div className="modal location-modal">
       <div className="modal-title"><div><h2>Device location</h2><p>Click the map to place this device.</p></div><button type="button" onClick={() => setShowLocation(false)}><X /></button></div>
+      <form className="map-search" onSubmit={searchLocation}><Search size={17} /><input value={locationQuery} onChange={event => setLocationQuery(event.target.value)} placeholder="Search city, neighborhood, or postal code" /><button disabled={searchingLocation}>{searchingLocation ? "Searching…" : "Search"}</button></form>
+      {locationResults.length > 0 && <div className="map-search-results">{locationResults.map(result => <button key={result.id} onClick={() => { setLocation({ latitude: result.latitude, longitude: result.longitude, label: [result.name, result.admin1, result.country].filter(Boolean).join(", ") }); setLocationResults([]); setLocationQuery(result.name); }}><strong>{result.name}</strong><span>{[result.admin1, result.country].filter(Boolean).join(", ")}</span></button>)}</div>}
       <MapContainer key={`${location.latitude}-${location.longitude}`} center={mapCenter} zoom={12} scrollWheelZoom className="device-map">
         <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         <MapClick onSelect={(latitude, longitude) => setLocation(current => ({ ...current, latitude, longitude }))} />
