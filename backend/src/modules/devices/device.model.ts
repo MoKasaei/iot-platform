@@ -19,6 +19,16 @@ export interface IDevice extends Document {
 
     lastSeen?: Date;
 
+
+    mqtt: {
+
+        username: string;
+
+        passwordHash: string;
+
+    };
+
+
     createdAt: Date;
 
     updatedAt: Date;
@@ -68,7 +78,23 @@ const DeviceSchema = new Schema<IDevice>(
         default: "0.0.0"
     },
 
+    mqtt: {
+        username: {
+            type: String,
+            required: true,
+            unique: true,
+            index: true
+        },
 
+
+        passwordHash: {
+            type: String,
+            required: true
+        }
+
+    },
+
+    
     online: {
         type: Boolean,
         default: false

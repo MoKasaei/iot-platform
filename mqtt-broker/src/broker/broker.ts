@@ -1,30 +1,45 @@
 import { createServer } from "node:net";
 import { Aedes } from "aedes";
-import { authenticate } from "../auth/authenticate";
+import {
+    authenticateDevice
+} from "../auth/backend-auth";
+import axios from "axios";
 
 
 let broker: Aedes;
 
 
+const BACKEND_SERVICE_PREFIX = "service-";
+
+
 export async function createBroker(): Promise<void> {
 
 
+    console.log(
+        "Backend MQTT user:",
+        process.env.MQTT_BACKEND_USERNAME
+    );
+
+
     broker = await Aedes.createBroker();
+
+
     broker.authenticate = async (
-    client,
-    username,
-    password,
-    callback
+        client,
+        username,
+        password,
+        callback
     ) => {
 
 
         if (!username || !password) {
 
-            const error = new Error(
-                "Missing credentials"
-            ) as Error & {
-                returnCode: number
-            };
+            const error =
+                new Error(
+                    "Missing credentials"
+                ) as Error & {
+                    returnCode:number
+                };
 
 
             error.returnCode = 4;
@@ -38,14 +53,67 @@ export async function createBroker(): Promise<void> {
 
 
 
-        const valid = await authenticate(
-            username.toString(),
-            password.toString()
-        );
+        const mqttUsername =
+            username.toString();
+
+
+        const mqttPassword =
+            password.toString();
 
 
 
-        if (valid) {
+        /*
+            Backend service authentication
+
+            Example:
+            clientId: service-backend-command
+            username: backend
+            password: backend123
+        */
+        if(
+            mqttUsername === process.env.MQTT_BACKEND_USERNAME &&
+            mqttPassword === process.env.MQTT_BACKEND_PASSWORD
+        ){
+
+            console.log(
+                "MQTT backend authenticated:",
+                client.id
+            );
+
+
+            return callback(
+                null,
+                true
+            );
+        }
+
+
+
+        /*
+            Device authentication
+
+            Example:
+            clientId: AHU001
+            username: ahu001
+            password: test123
+        */
+
+        const result =
+            await authenticateDevice(
+                mqttUsername,
+                mqttPassword
+            );
+
+
+
+        if(result.allowed) {
+
+
+            console.log(
+                "MQTT device authenticated:",
+                mqttUsername
+            );
+
 
             return callback(
                 null,
@@ -56,11 +124,12 @@ export async function createBroker(): Promise<void> {
 
 
 
-        const error = new Error(
-            "Invalid credentials"
-        ) as Error & {
-            returnCode:number
-        };
+        const error =
+            new Error(
+                "Invalid credentials"
+            ) as Error & {
+                returnCode:number
+            };
 
 
         error.returnCode = 4;
@@ -74,67 +143,325 @@ export async function createBroker(): Promise<void> {
     };
 
 
-    const server = createServer(
-        broker.handle
+
+    const server =
+        createServer(
+            broker.handle
+        );
+
+
+
+    server.listen(
+        1883,
+        () => {
+
+            console.log("==============================");
+            console.log(" MQTT Broker Started");
+            console.log(" Port: 1883");
+            console.log("==============================");
+
+        }
     );
 
 
-    server.listen(1883, () => {
 
-        console.log("==============================");
-        console.log(" MQTT Broker Started");
-        console.log(" Port: 1883");
-        console.log("==============================");
-
-    });
-
+    /*
+        Client connected
+    */
 
     broker.on(
         "client",
-        (client) => {
+        async(client)=>{
+
 
             console.log(
-                `Client Connected: ${client.id}`
+                "Client Connected:",
+                client.id
             );
+
+
+
+            /*
+                Ignore backend services
+
+                They are not IoT devices
+            */
+            if(
+                client.id.startsWith(
+                    BACKEND_SERVICE_PREFIX
+                )
+            ){
+
+                return;
+
+            }
+
+
+
+            try {
+
+
+                await axios.post(
+                    "http://localhost:3000/internal/device/online",
+                    {
+                        deviceId:client.id
+                    }
+                );
+
+
+            } catch(error){
+
+
+                console.error(
+                    "Device online update failed",
+                    error
+                );
+
+            }
+
 
         }
     );
 
+
+
+    /*
+        Client disconnected
+    */
 
     broker.on(
         "clientDisconnect",
-        (client) => {
+        async(client)=>{
+
 
             console.log(
-                `Client Disconnected: ${client.id}`
+                "Client Disconnected:",
+                client.id
             );
+
+
+
+            if(
+                client.id.startsWith(
+                    BACKEND_SERVICE_PREFIX
+                )
+            ){
+
+                return;
+
+            }
+
+
+
+            try {
+
+
+                await axios.post(
+                    "http://localhost:3000/internal/device/offline",
+                    {
+                        deviceId:client.id
+                    }
+                );
+
+
+            } catch(error){
+
+
+                console.error(
+                    "Device offline update failed",
+                    error
+                );
+
+            }
+
 
         }
     );
 
+
+
+
+    /*
+        MQTT messages
+    */
 
     broker.on(
         "publish",
-        (
-            packet,
-            client
-        ) => {
+        async(packet, client)=>{
 
 
-            if (!client)
+            if(!client)
                 return;
 
 
-            console.log("\nTopic:");
-            console.log(packet.topic);
+
+            /*
+                Ignore backend service messages
+
+                Example:
+                service-backend-command
+            */
+
+            if(
+                client.id.startsWith(
+                    BACKEND_SERVICE_PREFIX
+                )
+            ){
+
+                return;
+
+            }
 
 
-            console.log("Payload:");
-            console.log(
-                packet.payload.toString()
-            );
+
+            const topic =
+                packet.topic;
+
+
+
+            /*
+                TELEMETRY
+            */
+
+            if(
+                topic.includes("/telemetry")
+            ){
+
+                try {
+
+
+                    const parts =
+                        topic.split("/");
+
+
+                    const organizationId =
+                        parts[2];
+
+
+                    const deviceId =
+                        parts[4];
+
+
+
+                    const data =
+                        JSON.parse(
+                            packet.payload.toString()
+                        );
+
+
+
+                    console.log(
+                        "Forwarding telemetry",
+                        {
+                            organizationId,
+                            deviceId,
+                            data
+                        }
+                    );
+
+
+
+                    await axios.post(
+                        "http://localhost:3000/internal/telemetry",
+                        {
+                            organizationId,
+                            deviceId,
+                            data
+                        }
+                    );
+
+
+                }
+                catch(error){
+
+
+                    console.error(
+                        "Telemetry forwarding failed",
+                        error
+                    );
+
+                }
+
+
+                return;
+
+            }
+
+
+
+
+            /*
+                COMMAND ACK
+            */
+
+            if(
+                topic.includes("/command/ack")
+            ){
+
+                try {
+
+
+                    const parts =
+                        topic.split("/");
+
+
+                    const organizationId =
+                        parts[2];
+
+
+                    const deviceId =
+                        parts[4];
+
+
+
+                    const data =
+                        JSON.parse(
+                            packet.payload.toString()
+                        );
+
+
+
+                    console.log(
+                        "Command ACK received",
+                        {
+                            organizationId,
+                            deviceId,
+                            data
+                        }
+                    );
+
+
+
+                    await axios.post(
+                        "http://localhost:3000/internal/command/ack",
+                        {
+                            organizationId,
+                            deviceId,
+                            ...data
+                        }
+                    );
+
+                    console.log("Command ACK forwarded successfully");
+
+                }
+                catch(error){
+
+
+                    console.error(
+                        "Command ACK forwarding failed",
+                        error
+                    );
+
+                }
+
+
+                return;
+
+            }
+
 
         }
     );
+
 
 }

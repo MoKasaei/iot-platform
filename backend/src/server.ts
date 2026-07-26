@@ -10,8 +10,6 @@ import { seedDeviceTypes } from "./modules/device-types/device-type.service";
 
 import { seedDevices } from "./modules/devices/device.service";
 
-import { startMQTTBroker } from "./mqtt/broker";
-
 async function start() {
 
     await connectMongoDB();
@@ -22,8 +20,6 @@ async function start() {
 
     await seedDevices();
 
-
-    startMQTTBroker();
 
     app.listen(env.port, () => {
 
