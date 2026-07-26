@@ -136,3 +136,21 @@ export async function deleteUser(req: AuthRequest, res: Response) {
     await target.deleteOne();
     return res.json({ success: true });
 }
+
+export async function resetUserPassword(req: AuthRequest, res: Response) {
+    const temporaryPassword = req.body?.temporaryPassword;
+    if (typeof temporaryPassword !== "string" || temporaryPassword.length < 8) {
+        return res.status(400).json({ success: false, error: "Temporary password must be at least 8 characters" });
+    }
+    const target = await User.findOne({
+        userId: req.params.userId,
+        organizationId: req.user!.organizationId
+    }).select("email +passwordHash");
+    if (!target) return res.status(404).json({ success: false, error: "User not found" });
+    if (target.email.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase()) {
+        return res.status(403).json({ success: false, error: "Use account settings to change the primary administrator password" });
+    }
+    target.passwordHash = await bcrypt.hash(temporaryPassword, 12);
+    await target.save();
+    return res.json({ success: true });
+}

@@ -36,6 +36,15 @@ export async function sendCommand(
                     error: "Invalid writable device parameter"
                 });
             }
+            if (
+                value.key === "TempSet" &&
+                (!Number.isFinite(Number(value.value)) || !Number.isInteger(Number(value.value)))
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Temperature setpoint must be a whole number"
+                });
+            }
         }
 
 

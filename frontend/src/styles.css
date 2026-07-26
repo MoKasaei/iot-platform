@@ -61,3 +61,14 @@
 .theme-dark input,.theme-dark select,.theme-dark .settings-panel input,.theme-dark .settings-panel select,.theme-dark .modal input,.theme-dark .modal select{background:#111827;color:#e6edf5;border-color:#445166}
 .theme-dark .table-head{background:#151e2b}.theme-dark .table-row,.theme-dark .device-row,.theme-dark .panel-head{border-color:#344154}
 .theme-dark .device-row:hover{background:#222e3e}.theme-dark .stat-icon,.theme-dark .device-icon{background:#273446}
+.theme-dark .equipment-grid,.theme-dark .controls-grid{background:#344154}
+.theme-dark .equipment-reading,.theme-dark .equipment-status,.theme-dark .setpoint-control,.theme-dark .toggle-control,.theme-dark .weather-widget{background:#222e3e;color:#eef4fa;border-color:#344154}
+.theme-dark .setpoint-control>span,.theme-dark .toggle-control>span,.theme-dark .weather-widget span,.theme-dark .equipment-reading>span,.theme-dark .equipment-status span{color:#aebdca}
+.theme-dark .setpoint-control input{background:#111827;color:#eef4fa;border-color:#445166}
+.theme-dark .gauge-track{stroke:#445166}
+.forgot-note{font-size:.78rem!important;line-height:1.5;color:var(--muted)!important;margin:12px 0 0!important}
+.password-reset-box{border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin-top:18px}
+.password-reset-box legend{font-size:.82rem;font-weight:700;padding:0 6px}
+.password-reset-box p{font-size:.75rem;color:var(--muted);margin:3px 0}
+.password-reset-box .secondary-button{width:100%}
+.theme-dark .password-reset-box{border-color:#445166}

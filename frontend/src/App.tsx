@@ -25,6 +25,12 @@ function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [organizationName, setOrganizationName] = useState("your organization");
+  useEffect(() => {
+    api<{ organization: Organization }>("/organizations/public")
+      .then(response => setOrganizationName(response.organization.name))
+      .catch(() => undefined);
+  }, []);
 
   if (user) return <Navigate to="/" replace />;
 
@@ -60,6 +66,7 @@ function Login() {
         <p>Sign in, or create your own account.</p>
         <label>Email address<input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="email" required /></label>
         <label>Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" required /></label>
+        <p className="forgot-note">Forgot your password? Contact the administrator of {organizationName} to receive a temporary password.</p>
         {error && <div className="error">{error}</div>}
         <button className="primary-button" disabled={busy}>{busy ? "Signing in…" : "Sign in"} <ChevronRight size={18} /></button>
         <NavLink className="text-button auth-link" to="/register">Create an account</NavLink>
@@ -221,7 +228,7 @@ function Stat({ icon: Icon, label, value, note, tone = "" }: { icon: typeof Box;
 
 function DeviceRow({ device, showOwner }: { device: Device; showOwner?: boolean }) {
   const readings = getDisplayReadings(device.state || {});
-  return <NavLink className="device-row" to={`/devices/${device.deviceId}`}><div className="device-icon"><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.typeName || device.typeId}{showOwner ? ` · ID: ${device.deviceId} · ${device.owner ? device.owner.nickname || device.owner.name : "Unassigned"}` : ""}</small></div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{readings.map(reading => <span key={reading.label}><small>{reading.label}</small>{reading.value}</span>)}</div><ChevronRight className="row-arrow" /></NavLink>;
+  return <NavLink className="device-row" to={`/devices/${device.deviceId}`}><div className="device-icon"><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.typeName || device.typeId}{showOwner ? ` · ID: ${device.deviceId} · ${device.owner ? device.owner.nickname ? `${device.owner.nickname} · ${device.owner.name}` : device.owner.name : "Unassigned"}` : ""}</small></div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{readings.map(reading => <span key={reading.label}><small>{reading.label}</small>{reading.value}</span>)}</div><ChevronRight className="row-arrow" /></NavLink>;
 }
 
 function Devices() {
@@ -230,7 +237,7 @@ function Devices() {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("name");
   const [showAddDevice, setShowAddDevice] = useState(false);
-  const filtered = devices.filter(d => `${d.name} ${d.typeName || d.typeId} ${d.owner?.name || ""} ${d.owner?.nickname || ""}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => {
+  const filtered = devices.filter(d => `${d.name} ${d.deviceId} ${d.typeName || d.typeId} ${d.owner?.name || ""} ${d.owner?.nickname || ""} ${d.owner?.email || ""}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => {
     if (sort === "owner") return (a.owner?.nickname || a.owner?.name || "").localeCompare(b.owner?.nickname || b.owner?.name || "");
     if (sort === "status") return Number(b.online) - Number(a.online);
     if (sort === "type") return (a.typeName || a.typeId).localeCompare(b.typeName || b.typeId);
@@ -238,7 +245,7 @@ function Devices() {
   });
   return <main className="content">
     <div className="page-title"><div><span className="eyebrow">ASSET DIRECTORY</span><h1>Devices</h1><p>{user?.role === "admin" ? "Manage all devices and their owners." : "Monitor and manage your devices."}</p></div><button className="primary-button compact" onClick={() => setShowAddDevice(true)}><Plus size={18} /> Add device</button></div>
-    <div className="toolbar"><div className="input-search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Find a device or owner" /></div><select value={sort} onChange={e => setSort(e.target.value)}><option value="name">Sort by name</option><option value="type">Sort by type</option><option value="status">Sort by status</option>{user?.role === "admin" && <option value="owner">Sort by owner</option>}</select></div>
+    <div className="toolbar">{user?.role === "admin" && <div className="input-search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, ID, owner or nickname" /></div>}<select value={sort} onChange={e => setSort(e.target.value)}><option value="name">Sort by name</option><option value="type">Sort by type</option><option value="status">Sort by status</option>{user?.role === "admin" && <option value="owner">Sort by owner</option>}</select></div>
     {error && <div className="error">{error}</div>}
     <section className="panel"><div className="device-list">{loading ? <div className="loading-text">Loading devices…</div> : filtered.length ? filtered.map(d => <DeviceRow key={d.deviceId} device={d} showOwner={user?.role === "admin"} />) : <Empty />}</div></section>
     {showAddDevice && <NewDevice onClose={() => setShowAddDevice(false)} onCreated={refresh} />}
@@ -469,7 +476,7 @@ function DeviceControls({
   return <section className="panel controls-panel">
     <div className="panel-head"><div><h2>Device controls</h2></div>{message && <span className="control-message">{message}</span>}</div>
     <div className="controls-grid">
-      <div className="setpoint-control"><span>Temperature setpoint</span><div><input type="number" step="0.1" value={temperature} onChange={event => setTemperature(event.target.value)} /><span>°C</span><button disabled={pending === "TempSet"} onClick={() => send("TempSet", Number(temperature))}>Set</button></div></div>
+      <div className="setpoint-control"><span>Temperature setpoint</span><div><input type="number" step="1" value={temperature} onChange={event => setTemperature(event.target.value)} /><span>°C</span><button disabled={pending === "TempSet"} onClick={() => send("TempSet", Math.round(Number(temperature)))}>Set</button></div></div>
       {toggleControls.map(control => {
         const active = !["0", "false", "off", "", "undefined"].includes(String(state[control.key]).toLowerCase());
         return <button className={`toggle-control ${active ? "active" : ""}`} disabled={pending === control.key} key={control.key} onClick={() => send(control.key, active ? "0" : "1")}><span>{control.label}</span><i><b /></i></button>;
@@ -684,10 +691,14 @@ function DeviceDetail() {
 
 function UserAccess() {
   const [users, setUsers] = useState<User[]>([]);
+  const [query, setQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [error, setError] = useState("");
   const load = () => api<{ users: User[] }>("/users").then(r => setUsers(r.users)).catch(e => setError(e.message));
+  const filteredUsers = users.filter(user =>
+    `${user.name} ${user.nickname || ""} ${user.email} ${user.role}`.toLowerCase().includes(query.toLowerCase())
+  );
   useEffect(() => { load(); }, []);
 
   async function toggle(user: User) {
@@ -708,10 +719,11 @@ function UserAccess() {
 
   return <main className="content">
     <div className="page-title"><div><span className="eyebrow">ADMINISTRATION</span><h1>User access</h1><p>Control who can access this organization and what they can do.</p></div><button className="primary-button compact" onClick={() => setShowForm(true)}><Plus size={18} /> Add user</button></div>
+    <div className="toolbar"><div className="input-search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, nickname, email or role" /></div></div>
     {error && <div className="error">{error}</div>}
     <section className="panel user-table">
       <div className="table-head"><span>User</span><span>Devices</span><span>Status</span><span>Actions</span></div>
-      {users.map(user => <div className="table-row" key={user.userId}><div className="user-cell"><span className="avatar">{user.profilePhoto ? <img src={user.profilePhoto} alt="" /> : user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.nickname || user.name}</strong><small>{user.nickname ? `${user.name} · ` : ""}{user.email}{user.primaryAdmin ? " · Primary admin" : ""}</small></div></div><span className="role"><ShieldCheck size={15} /> {user.deviceCount || 0} / {user.deviceLimit === null ? "Unlimited" : user.deviceLimit ?? 1}</span><span className={user.active ? "status online" : "status"}><i />{user.active ? "Active" : "Disabled"}</span><div className="row-actions"><button className="text-button" onClick={() => setEditingUser(user)}>Edit</button><button className="text-button" disabled={user.primaryAdmin} onClick={() => toggle(user)}>{user.primaryAdmin ? "Protected" : user.active ? "Disable" : "Enable"}</button><button className="icon-danger" disabled={user.primaryAdmin} onClick={() => remove(user)} title="Permanently delete"><Trash2 size={16} /></button></div></div>)}
+      {filteredUsers.map(user => <div className="table-row" key={user.userId}><div className="user-cell"><span className="avatar">{user.profilePhoto ? <img src={user.profilePhoto} alt="" /> : user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.nickname || user.name}</strong><small>{user.nickname ? `${user.name} · ` : ""}{user.email}{user.primaryAdmin ? " · Primary admin" : ""}</small></div></div><span className="role"><ShieldCheck size={15} /> {user.deviceCount || 0} / {user.deviceLimit === null ? "Unlimited" : user.deviceLimit ?? 1}</span><span className={user.active ? "status online" : "status"}><i />{user.active ? "Active" : "Disabled"}</span><div className="row-actions"><button className="text-button" onClick={() => setEditingUser(user)}>Edit</button><button className="text-button" disabled={user.primaryAdmin} onClick={() => toggle(user)}>{user.primaryAdmin ? "Protected" : user.active ? "Disable" : "Enable"}</button><button className="icon-danger" disabled={user.primaryAdmin} onClick={() => remove(user)} title="Permanently delete"><Trash2 size={16} /></button></div></div>)}
     </section>
     {showForm && <NewUser onClose={() => setShowForm(false)} onCreated={() => { setShowForm(false); load(); }} />}
     {editingUser && <EditUser user={editingUser} onClose={() => setEditingUser(null)} onSaved={() => { setEditingUser(null); load(); }} />}
@@ -722,6 +734,9 @@ function EditUser({ user, onClose, onSaved }: { user: User; onClose: () => void;
   const [form, setForm] = useState({ nickname: user.nickname || "", role: user.role, active: user.active !== false, deviceLimit: user.deviceLimit ?? 1 });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [temporaryPassword, setTemporaryPassword] = useState("");
+  const [confirmTemporaryPassword, setConfirmTemporaryPassword] = useState("");
+  const [resetMessage, setResetMessage] = useState("");
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError("");
     try {
@@ -729,11 +744,26 @@ function EditUser({ user, onClose, onSaved }: { user: User; onClose: () => void;
       onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : "Update failed"); setBusy(false); }
   }
+  async function resetPassword() {
+    setError(""); setResetMessage("");
+    if (temporaryPassword.length < 8 || temporaryPassword !== confirmTemporaryPassword) {
+      setError("Temporary passwords must match and contain at least 8 characters"); return;
+    }
+    try {
+      await api(`/users/${user.userId}/password`, {
+        method: "PATCH",
+        body: JSON.stringify({ temporaryPassword })
+      });
+      setTemporaryPassword(""); setConfirmTemporaryPassword("");
+      setResetMessage("Temporary password set");
+    } catch (e) { setError(e instanceof Error ? e.message : "Password reset failed"); }
+  }
   return <div className="modal-backdrop"><form className="modal" onSubmit={submit}><div className="modal-title"><div><h2>Manage user</h2><p>{user.name} · {user.email}</p></div><button type="button" onClick={onClose}><X /></button></div>
     <label>Admin nickname<input value={form.nickname} onChange={e => setForm({ ...form, nickname: e.target.value })} maxLength={80} placeholder="Optional internal label" /></label>
     <label>Device allowance{user.primaryAdmin ? <input value="Unlimited" disabled /> : <input type="number" min={0} max={100} value={form.deviceLimit} onChange={e => setForm({ ...form, deviceLimit: Number(e.target.value) })} />}</label>
     <label>Access level<select disabled={user.primaryAdmin} value={form.role} onChange={e => setForm({ ...form, role: e.target.value as Role })}><option value="user">User</option><option value="admin">Administrator</option></select></label>
     <label className="checkbox-row"><input type="checkbox" disabled={user.primaryAdmin} checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} /> Account active</label>
+    {!user.primaryAdmin && <fieldset className="password-reset-box"><legend>Reset forgotten password</legend><p>Set a temporary password and provide it securely to this user.</p><label>Temporary password<input type="password" minLength={8} value={temporaryPassword} onChange={e => setTemporaryPassword(e.target.value)} /></label><label>Confirm temporary password<input type="password" minLength={8} value={confirmTemporaryPassword} onChange={e => setConfirmTemporaryPassword(e.target.value)} /></label><button type="button" className="secondary-button" onClick={resetPassword}>Set temporary password</button>{resetMessage && <div className="success">{resetMessage}</div>}</fieldset>}
     {error && <div className="error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button compact" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></div>
   </form></div>;
 }

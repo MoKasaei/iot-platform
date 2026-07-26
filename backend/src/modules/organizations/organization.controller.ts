@@ -22,6 +22,17 @@ export async function getCurrentOrganization(req: AuthRequest, res: Response) {
     return res.json({ success: true, organization });
 }
 
+export async function getPublicOrganization(_req: Request, res: Response) {
+    const organization = await Organization.findOne({
+        organizationId: process.env.ADMIN_ORGANIZATION_ID || "ORG001",
+        active: true
+    }).select("name logo");
+    return res.json({
+        success: true,
+        organization: organization || { name: "your organization" }
+    });
+}
+
 export async function updateCurrentOrganization(req: AuthRequest, res: Response) {
     const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
     const logo = req.body.logo;
