@@ -4,6 +4,7 @@ import {
     authenticateDevice
 } from "../auth/backend-auth";
 import axios from "axios";
+import { env } from "../config/env";
 
 
 const deviceDisconnectTimers =
@@ -30,13 +31,6 @@ const BACKEND_SERVICE_PREFIX = "service-";
 
 
 export async function createBroker():Promise<void>{
-
-
-    console.log(
-        "Backend MQTT user:",
-        process.env.MQTT_BACKEND_USERNAME
-    );
-
 
 
     broker =
@@ -97,10 +91,10 @@ export async function createBroker():Promise<void>{
 
         if(
             mqttUsername ===
-            process.env.MQTT_BACKEND_USERNAME
+            env.backendUsername
             &&
             mqttPassword ===
-            process.env.MQTT_BACKEND_PASSWORD
+            env.backendPassword
         ){
 
 
@@ -197,12 +191,13 @@ export async function createBroker():Promise<void>{
 
 
     server.listen(
-        1883,
+        env.port,
+        env.host,
         ()=>{
 
             console.log("==============================");
             console.log(" MQTT Broker Started");
-            console.log(" Port: 1883");
+            console.log(` Listening: ${env.host}:${env.port}`);
             console.log("==============================");
 
         }
@@ -286,8 +281,8 @@ export async function createBroker():Promise<void>{
             try{
 
 
-                await axios.post(
-                    "http://localhost:3000/internal/device/online",
+                    await axios.post(
+                    `${env.backendUrl}/internal/device/online`,
                     {
                         deviceId
                     }
@@ -397,7 +392,7 @@ export async function createBroker():Promise<void>{
 
 
                             await axios.post(
-                                "http://localhost:3000/internal/device/offline",
+                                `${env.backendUrl}/internal/device/offline`,
                                 {
                                     deviceId
                                 }
@@ -516,7 +511,7 @@ export async function createBroker():Promise<void>{
 
 
                     await axios.post(
-                        "http://localhost:3000/internal/telemetry",
+                        `${env.backendUrl}/internal/telemetry`,
                         {
                             organizationId,
                             deviceId,
@@ -526,7 +521,7 @@ export async function createBroker():Promise<void>{
 
                     
                     await axios.post(
-                        "http://localhost:3000/internal/device/heartbeat",
+                        `${env.backendUrl}/internal/device/heartbeat`,
                         {
                             deviceId
                         }
@@ -595,7 +590,7 @@ export async function createBroker():Promise<void>{
 
 
                     await axios.post(
-                        "http://localhost:3000/internal/command/ack",
+                        `${env.backendUrl}/internal/command/ack`,
                         {
                             organizationId,
                             deviceId,

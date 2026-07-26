@@ -5,7 +5,9 @@ import helmet from "helmet";
 import organizationRoutes from "./modules/organizations/organization.routes";
 import mqttAuthRoutes from "./modules/mqtt-auth/mqtt-auth.routes";
 import telemetryRoutes from "./modules/telemetry/telemetry.routes";
-import deviceRoutes from "./modules/devices/device.routes";
+import deviceRoutes, {
+    internalDeviceRouter
+} from "./modules/devices/device.routes";
 import commandRoutes from "./modules/commands/command.routes";
 import authRoutes from "./modules/auth/auth.routes";
 import userRoutes from "./modules/users/user.routes";
@@ -42,6 +44,11 @@ app.use(
 app.use(
     "/api/devices",
     deviceRoutes
+);
+
+app.use(
+    "/internal/device",
+    internalDeviceRouter
 );
 
 

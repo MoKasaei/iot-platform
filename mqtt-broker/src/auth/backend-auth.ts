@@ -1,9 +1,5 @@
 import axios from "axios";
-
-
-const BACKEND_URL =
-    process.env.BACKEND_URL ||
-    "http://localhost:3000";
+import { env } from "../config/env";
 
 
 
@@ -17,7 +13,7 @@ export async function authenticateDevice(
 
         const response =
             await axios.post(
-                `${BACKEND_URL}/internal/mqtt/auth`,
+                `${env.backendUrl}/internal/mqtt/auth`,
                 {
                     username,
                     password
