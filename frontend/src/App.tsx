@@ -235,7 +235,7 @@ function MetricGauge({ label, value, detail, icon: Icon }: { label: string; valu
   return <article className="system-metric"><div className="metric-heading"><Icon size={18} /><span>{label}</span></div><div className="ring-gauge" style={{ background: `conic-gradient(var(--theme-accent) ${bounded}%, var(--ring-track, #e5ebf1) ${bounded}% 100%)` }}><div><strong>{bounded}%</strong></div></div><small>{detail}</small></article>;
 }
 
-function FitDeviceBounds({ devices }: { devices: OverviewData["devices"] }) {
+function FitDeviceBounds({ devices, trigger }: { devices: OverviewData["devices"]; trigger: number }) {
   const map = useMap();
   useEffect(() => {
     if (devices.length === 1) {
@@ -243,13 +243,14 @@ function FitDeviceBounds({ devices }: { devices: OverviewData["devices"] }) {
     } else if (devices.length > 1) {
       map.fitBounds(devices.map(device => [device.latitude, device.longitude] as [number, number]), { padding: [35, 35] });
     }
-  }, [devices, map]);
+  }, [trigger, map]);
   return null;
 }
 
 function AdminOverview({ name }: { name: string }) {
   const [data, setData] = useState<OverviewData | null>(null);
   const [error, setError] = useState("");
+  const [mapRecenter, setMapRecenter] = useState(0);
   useEffect(() => {
     let active = true;
     const load = () => api<OverviewData>("/overview")
@@ -280,7 +281,7 @@ function AdminOverview({ name }: { name: string }) {
       <article><span>Device errors</span><strong className={data?.totals.errorDevices ? "danger-text" : ""}>{data?.totals.errorDevices ?? "—"}</strong><div className="progress-bar red"><i style={{ width: `${data?.totals.devices ? data.totals.errorDevices / data.totals.devices * 100 : 0}%` }} /></div><small>Reported error or alarm states</small></article>
     </section>
     <section className="panel overview-map-panel"><div className="panel-head"><div><h2>Device locations</h2><p>Green is normal; red indicates a reported error</p></div></div>
-      {data?.devices.length ? <MapContainer center={[36.1911, 44.0092]} zoom={4} scrollWheelZoom className="overview-map"><TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" /><FitDeviceBounds devices={data.devices} />{data.devices.map(device => <Marker key={device.deviceId} position={[device.latitude, device.longitude]} icon={marker(device.error)}><Popup><div className="map-device-card"><div className="map-device-card-head"><span className={device.error ? "map-state error" : "map-state"} /><div><strong>{device.name}</strong><small>{device.typeId} · {device.online ? "Online" : "Offline"}</small></div></div><dl><div><dt>Device ID</dt><dd><code>{device.deviceId}</code></dd></div><div><dt>Owner</dt><dd>{device.owner ? device.owner.nickname ? `${device.owner.nickname} · ${device.owner.name}` : device.owner.name : "Unassigned"}</dd></div><div><dt>Location</dt><dd>{device.label || `${fixed(device.latitude, 4)}, ${fixed(device.longitude, 4)}`}</dd></div></dl>{device.error && <div className="map-errors"><span>Error codes</span>{device.errors.map(error => <code key={error}>{error}</code>)}</div>}<NavLink className="map-device-link" to={`/devices/${device.deviceId}`}>Open device <ChevronRight size={15} /></NavLink></div></Popup></Marker>)}</MapContainer> : <div className="empty"><MapPin /><strong>No device locations</strong><span>Set device locations to display the organization map.</span></div>}
+      {data?.devices.length ? <div className="overview-map-wrap"><button className="map-recenter-button" onClick={() => setMapRecenter(value => value + 1)}><MapPin size={15} /> Recenter</button><MapContainer center={[36.1911, 44.0092]} zoom={4} scrollWheelZoom className="overview-map"><TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" /><FitDeviceBounds devices={data.devices} trigger={mapRecenter} />{data.devices.map(device => <Marker key={device.deviceId} position={[device.latitude, device.longitude]} icon={marker(device.error)}><Popup><div className="map-device-card"><div className="map-device-card-head"><span className={device.error ? "map-state error" : "map-state"} /><div><strong>{device.name}</strong><small>{device.typeId} · {device.online ? "Online" : "Offline"}</small></div></div><dl><div><dt>Device ID</dt><dd><code>{device.deviceId}</code></dd></div><div><dt>Owner</dt><dd>{device.owner ? device.owner.nickname ? `${device.owner.nickname} · ${device.owner.name}` : device.owner.name : "Unassigned"}</dd></div><div><dt>Location</dt><dd>{device.label || `${fixed(device.latitude, 4)}, ${fixed(device.longitude, 4)}`}</dd></div></dl>{device.error && <div className="map-errors"><span>Error codes</span>{device.errors.map(error => <code key={error}>{error}</code>)}</div>}<NavLink className="map-device-link" to={`/devices/${device.deviceId}`}>Open device <ChevronRight size={15} /></NavLink></div></Popup></Marker>)}</MapContainer></div> : <div className="empty"><MapPin /><strong>No device locations</strong><span>Set device locations to display the organization map.</span></div>}
     </section>
   </main>;
 }
