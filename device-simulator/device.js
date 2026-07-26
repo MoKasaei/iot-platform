@@ -1,16 +1,20 @@
 const mqtt = require("mqtt");
 
 
-const ORGANIZATION_ID = "ORG001";
-const DEVICE_ID = "AHU001";
+const ORGANIZATION_ID = process.env.ORGANIZATION_ID || "ORG001";
+const DEVICE_ID = process.env.DEVICE_ID || "AHU001";
+const MQTT_URL = process.env.MQTT_URL || "mqtt://localhost:1883";
+const MQTT_USERNAME = process.env.MQTT_USERNAME || "ahu001";
+const MQTT_PASSWORD = process.env.MQTT_PASSWORD || "test123";
+const TELEMETRY_INTERVAL_MS = Number(process.env.TELEMETRY_INTERVAL_MS || 5000);
 
 
 const client = mqtt.connect(
-    "mqtt://localhost:1883",
+    MQTT_URL,
     {
         clientId: DEVICE_ID + "-" + Date.now(),
-        username: "ahu001",
-        password: "test123"
+        username: MQTT_USERNAME,
+        password: MQTT_PASSWORD
     }
 );
 
@@ -31,10 +35,10 @@ function sendTelemetry(){
     const telemetry = {
 
         temperature:
-            20 + Math.random() * 5,
+            Number((20 + Math.random() * 5).toFixed(1)),
 
         humidity:
-            40 + Math.random() * 10,
+            Number((40 + Math.random() * 10).toFixed(1)),
 
         uptime:
             Math.floor(
@@ -88,10 +92,10 @@ client.on("connect", () => {
     sendTelemetry();
 
 
-    // heartbeat every 30 seconds
+    // Publish frequently enough to make the history chart useful in development.
     setInterval(
         sendTelemetry,
-        30000
+        TELEMETRY_INTERVAL_MS
     );
 
 });

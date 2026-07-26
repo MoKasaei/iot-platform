@@ -5,12 +5,15 @@ import {
     deviceHeartbeat
 } from "./device.controller";
 import {
+    createDevice,
     getDeviceState,
     getDeviceWeather,
+    listDeviceTypes,
+    renameDevice,
     updateDeviceLocation
 } from "./device.controller";
 import { listDevices } from "./device.controller";
-import { requireAuth } from "../../middleware/auth.middleware";
+import { requireAuth, requireRole } from "../../middleware/auth.middleware";
 
 const router = Router();
 export const internalDeviceRouter = Router();
@@ -35,6 +38,25 @@ internalDeviceRouter.post(
 
 
 router.get("/", requireAuth, listDevices);
+
+router.post(
+    "/",
+    requireAuth,
+    requireRole("admin"),
+    createDevice
+);
+
+router.get(
+    "/types",
+    requireAuth,
+    listDeviceTypes
+);
+
+router.patch(
+    "/:deviceId",
+    requireAuth,
+    renameDevice
+);
 
 router.patch(
     "/:deviceId/location",

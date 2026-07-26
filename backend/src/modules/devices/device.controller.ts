@@ -6,12 +6,29 @@ import {
 import Device from "./device.model";
 import { AuthRequest } from "../../middleware/auth.middleware";
 import { getCurrentWeather } from "./weather.service";
+import DeviceType from "../device-types/device-type.model";
+import bcrypt from "bcrypt";
+import crypto from "node:crypto";
+import { generateDevicePassword } from "../../shared/utils/password";
 
 export async function listDevices(req: AuthRequest, res: Response) {
     const devices = await Device.find({ organizationId: req.user!.organizationId })
         .select("-mqtt.passwordHash")
         .sort({ name: 1 });
-    return res.json({ success: true, devices });
+    const types = await DeviceType.find({
+        typeId: { $in: devices.map(device => device.typeId) }
+    }).select("typeId name");
+    const typeNames = new Map(
+        types.map(type => [type.typeId, type.name])
+    );
+
+    return res.json({
+        success: true,
+        devices: devices.map(device => ({
+            ...device.toObject(),
+            typeName: typeNames.get(device.typeId) || device.typeId
+        }))
+    });
 }
 
 
@@ -107,6 +124,9 @@ export async function getDeviceState(
 
         }
 
+        const deviceType = await DeviceType.findOne({
+            typeId: device.typeId
+        }).select("name");
 
         return res.json({
 
@@ -115,6 +135,8 @@ export async function getDeviceState(
             device:{
                 deviceId: device.deviceId,
                 name: device.name,
+                typeId: device.typeId,
+                typeName: deviceType?.name || device.typeId,
                 online: device.online,
                 state: device.state,
                 location: device.location,
@@ -140,6 +162,116 @@ export async function getDeviceState(
 
     }
 
+}
+
+export async function listDeviceTypes(
+    req: AuthRequest,
+    res: Response
+) {
+    const types = await DeviceType.find({ active: true })
+        .select("typeId name icon")
+        .sort({ name: 1 });
+
+    return res.json({ success: true, types });
+}
+
+export async function createDevice(
+    req: AuthRequest,
+    res: Response
+) {
+    const name =
+        typeof req.body.name === "string"
+            ? req.body.name.trim()
+            : "";
+    const typeId =
+        typeof req.body.typeId === "string"
+            ? req.body.typeId.trim()
+            : "";
+
+    if (!name || name.length > 120) {
+        return res.status(400).json({
+            success: false,
+            error: "Device name is required and must be 120 characters or less"
+        });
+    }
+
+    const deviceType = await DeviceType.findOne({ typeId, active: true });
+    if (!deviceType) {
+        return res.status(400).json({
+            success: false,
+            error: "Select a valid device type"
+        });
+    }
+
+    const suffix = crypto.randomBytes(5).toString("hex");
+    const deviceId = crypto.randomUUID();
+    const username = `device-${suffix}`;
+    const password = generateDevicePassword();
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const device = await Device.create({
+        deviceId,
+        organizationId: req.user!.organizationId,
+        typeId,
+        name,
+        hardware:
+            typeof req.body.hardware === "string"
+                ? req.body.hardware.trim().slice(0, 120)
+                : "unknown",
+        firmwareVersion:
+            typeof req.body.firmwareVersion === "string"
+                ? req.body.firmwareVersion.trim().slice(0, 60)
+                : "0.0.0",
+        mqtt: { username, passwordHash }
+    });
+
+    return res.status(201).json({
+        success: true,
+        device: {
+            ...device.toObject(),
+            mqtt: undefined,
+            typeName: deviceType.name
+        },
+        credentials: {
+            username,
+            password
+        }
+    });
+}
+
+export async function renameDevice(
+    req: AuthRequest,
+    res: Response
+) {
+    const name =
+        typeof req.body.name === "string"
+            ? req.body.name.trim()
+            : "";
+
+    if (!name || name.length > 120) {
+        return res.status(400).json({
+            success: false,
+            error: "Device name is required and must be 120 characters or less"
+        });
+    }
+
+    const device = await Device.findOneAndUpdate(
+        {
+            deviceId: String(req.params.deviceId),
+            organizationId: req.user!.organizationId
+        },
+        { $set: { name } },
+        { new: true }
+    ).select("-mqtt.passwordHash");
+
+    if (!device) {
+        return res.status(404).json({
+            success: false,
+            error: "Device not found"
+        });
+    }
+
+    return res.json({ success: true, device });
 }
 
 export async function updateDeviceLocation(

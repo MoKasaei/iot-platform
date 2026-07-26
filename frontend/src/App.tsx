@@ -14,7 +14,8 @@ import {
 import { api } from "./api";
 import { useAuth } from "./auth";
 import type {
-  Device, Role, TelemetryPoint, User, WeatherReading
+  Device, DeviceCredentials, DeviceType, Role, TelemetryPoint, User,
+  WeatherReading
 } from "./types";
 
 function Login() {
@@ -115,13 +116,20 @@ function useDevices() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
+    setLoading(true);
     api<{ devices: Device[] }>("/devices")
       .then(r => setDevices(r.devices))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
-  return { devices, loading, error };
+  }, [revision]);
+  return {
+    devices,
+    loading,
+    error,
+    refresh: () => setRevision(value => value + 1)
+  };
 }
 
 function Overview() {
@@ -154,19 +162,89 @@ function Stat({ icon: Icon, label, value, note, tone = "" }: { icon: typeof Box;
 }
 
 function DeviceRow({ device }: { device: Device }) {
-  return <NavLink className="device-row" to={`/devices/${device.deviceId}`}><div className="device-icon"><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.deviceId} · {device.typeId}</small></div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{Object.entries(device.state || {}).slice(0, 2).map(([key, value]) => <span key={key}><small>{key}</small>{String(value)}</span>)}</div><ChevronRight className="row-arrow" /></NavLink>;
+  return <NavLink className="device-row" to={`/devices/${device.deviceId}`}><div className="device-icon"><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.typeName || device.typeId}</small></div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{Object.entries(device.state || {}).slice(0, 2).map(([key, value]) => <span key={key}><small>{key}</small>{String(value)}</span>)}</div><ChevronRight className="row-arrow" /></NavLink>;
 }
 
 function Devices() {
-  const { devices, loading, error } = useDevices();
+  const { user } = useAuth();
+  const { devices, loading, error, refresh } = useDevices();
   const [query, setQuery] = useState("");
-  const filtered = devices.filter(d => `${d.name} ${d.deviceId} ${d.typeId}`.toLowerCase().includes(query.toLowerCase()));
+  const [showAddDevice, setShowAddDevice] = useState(false);
+  const filtered = devices.filter(d => `${d.name} ${d.typeName || d.typeId}`.toLowerCase().includes(query.toLowerCase()));
   return <main className="content">
-    <div className="page-title"><div><span className="eyebrow">ASSET DIRECTORY</span><h1>Devices</h1><p>Monitor every device assigned to your organization.</p></div></div>
+    <div className="page-title"><div><span className="eyebrow">ASSET DIRECTORY</span><h1>Devices</h1><p>Monitor every device assigned to your organization.</p></div>{user?.role === "admin" && <button className="primary-button compact" onClick={() => setShowAddDevice(true)}><Plus size={18} /> Add device</button>}</div>
     <div className="toolbar"><div className="input-search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Find a device" /></div></div>
     {error && <div className="error">{error}</div>}
     <section className="panel"><div className="device-list">{loading ? <div className="loading-text">Loading devices…</div> : filtered.length ? filtered.map(d => <DeviceRow key={d.deviceId} device={d} />) : <Empty />}</div></section>
+    {showAddDevice && <NewDevice onClose={() => setShowAddDevice(false)} onCreated={refresh} />}
   </main>;
+}
+
+function NewDevice({
+  onClose,
+  onCreated
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [types, setTypes] = useState<DeviceType[]>([]);
+  const [form, setForm] = useState({
+    name: "",
+    typeId: "",
+    hardware: "",
+    firmwareVersion: ""
+  });
+  const [credentials, setCredentials] = useState<DeviceCredentials | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api<{ types: DeviceType[] }>("/devices/types")
+      .then(response => {
+        setTypes(response.types);
+        if (response.types[0]) {
+          setForm(current => ({ ...current, typeId: response.types[0].typeId }));
+        }
+      })
+      .catch(loadError => setError(loadError.message));
+  }, []);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const response = await api<{
+        device: Device;
+        credentials: DeviceCredentials;
+      }>("/devices", {
+        method: "POST",
+        body: JSON.stringify(form)
+      });
+      setCredentials(response.credentials);
+      onCreated();
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Could not create device");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <div className="modal-backdrop">
+    {credentials ? <div className="modal">
+      <div className="modal-title"><div><h2>Device created</h2><p>Copy these MQTT credentials now. The password is shown only once.</p></div><button type="button" onClick={onClose}><X /></button></div>
+      <div className="credential-box"><label>MQTT username<code>{credentials.username}</code></label><label>MQTT password<code>{credentials.password}</code></label></div>
+      <div className="modal-actions"><button className="primary-button compact" onClick={onClose}>Done</button></div>
+    </div> : <form className="modal" onSubmit={submit}>
+      <div className="modal-title"><div><h2>Add a device</h2><p>Create a device and generate its MQTT credentials.</p></div><button type="button" onClick={onClose}><X /></button></div>
+      <label>Device name<input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Lobby air handler" maxLength={120} required /></label>
+      <label>Device type<select value={form.typeId} onChange={event => setForm({ ...form, typeId: event.target.value })} required>{types.map(type => <option key={type.typeId} value={type.typeId}>{type.name}</option>)}</select></label>
+      <label>Hardware (optional)<input value={form.hardware} onChange={event => setForm({ ...form, hardware: event.target.value })} placeholder="ESP32" /></label>
+      <label>Firmware version (optional)<input value={form.firmwareVersion} onChange={event => setForm({ ...form, firmwareVersion: event.target.value })} placeholder="1.0.0" /></label>
+      {error && <div className="error">{error}</div>}
+      <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button compact" disabled={busy || !form.typeId}>{busy ? "Creating..." : "Create device"}</button></div>
+    </form>}
+  </div>;
 }
 
 const deviceMarker = divIcon({
@@ -210,6 +288,8 @@ function DeviceDetail() {
   const [telemetry, setTelemetry] = useState<TelemetryPoint[]>([]);
   const [weather, setWeather] = useState<WeatherReading | null>(null);
   const [location, setLocation] = useState({ latitude: 35.6892, longitude: 51.389, label: "" });
+  const [nameDraft, setNameDraft] = useState("");
+  const [renaming, setRenaming] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -233,6 +313,7 @@ function DeviceDetail() {
     ])
       .then(([deviceResponse, telemetryResponse]) => {
         setDevice(deviceResponse.device);
+        setNameDraft(deviceResponse.device.name);
         setTelemetry(telemetryResponse.telemetry);
         if (hasCoordinates(deviceResponse.device.location)) {
           setLocation({
@@ -262,6 +343,25 @@ function DeviceDetail() {
     }
   }
 
+  async function saveName() {
+    const name = nameDraft.trim();
+    if (!name || name === device?.name) return;
+    setRenaming(true);
+    setError("");
+    try {
+      const response = await api<{ device: Device }>(`/devices/${deviceId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name })
+      });
+      setDevice(current => current ? { ...current, name: response.device.name } : current);
+      setNameDraft(response.device.name);
+    } catch (renameError) {
+      setError(renameError instanceof Error ? renameError.message : "Could not rename device");
+    } finally {
+      setRenaming(false);
+    }
+  }
+
   if (!device) {
     return <main className="content"><div className="loading-text">Loading device history...</div>{error && <div className="error">{error}</div>}</main>;
   }
@@ -277,7 +377,7 @@ function DeviceDetail() {
 
   return <main className="content">
     <div className="page-title">
-      <div><span className="eyebrow">DEVICE INSIGHT</span><h1>{device.name}</h1><p>{device.deviceId} · {device.typeId} · Up to 100 recent readings</p></div>
+      <div><span className="eyebrow">DEVICE INSIGHT</span><div className="device-title-edit"><input value={nameDraft} onChange={event => setNameDraft(event.target.value)} maxLength={120} aria-label="Device name" /><button className="text-button" disabled={renaming || !nameDraft.trim() || nameDraft.trim() === device.name} onClick={saveName}>{renaming ? "Saving..." : "Save name"}</button></div><p>{device.typeName || device.typeId} · Up to 100 recent readings</p></div>
       <NavLink className="secondary-link" to="/devices">Back to devices</NavLink>
     </div>
     {error && <div className="error">{error}</div>}

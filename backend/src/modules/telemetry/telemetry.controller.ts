@@ -4,6 +4,29 @@ import Device from "../devices/device.model";
 import Telemetry from "./telemetry.model";
 import { AuthRequest } from "../../middleware/auth.middleware";
 
+function normalizeTelemetry(value: unknown): unknown {
+    if (typeof value === "number") {
+        if (!Number.isFinite(value)) {
+            return null;
+        }
+        return Math.round(value * 10) / 10;
+    }
+
+    if (Array.isArray(value)) {
+        return value.map(normalizeTelemetry);
+    }
+
+    if (value && typeof value === "object") {
+        return Object.fromEntries(
+            Object.entries(value).map(([key, entry]) => [
+                key,
+                normalizeTelemetry(entry)
+            ])
+        );
+    }
+
+    return value;
+}
 
 export async function receiveTelemetry(
     req:Request,
@@ -17,6 +40,14 @@ export async function receiveTelemetry(
             deviceId,
             data
         } = req.body;
+        if (!data || typeof data !== "object" || Array.isArray(data)) {
+            return res.status(400).json({
+                success: false,
+                error: "Telemetry data must be an object"
+            });
+        }
+        const normalizedData =
+            normalizeTelemetry(data) as Record<string, unknown>;
 
 
 
@@ -30,7 +61,7 @@ export async function receiveTelemetry(
 
             deviceId,
 
-            data
+            data: normalizedData
 
         });
 
@@ -40,7 +71,7 @@ export async function receiveTelemetry(
             "Telemetry saved:",
             {
                 deviceId,
-                data
+                data: normalizedData
             }
         );
 
@@ -61,7 +92,7 @@ export async function receiveTelemetry(
 
                 lastSeen:new Date(),
 
-                state:data
+                state: normalizedData
             }
 
         );
@@ -71,7 +102,7 @@ export async function receiveTelemetry(
         console.log(
             "Device state updated:",
             deviceId,
-            data
+            normalizedData
         );
 
 

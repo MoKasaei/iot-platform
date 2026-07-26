@@ -14,6 +14,7 @@ export interface Device {
   deviceId: string;
   organizationId: string;
   typeId: string;
+  typeName?: string;
   name: string;
   hardware: string;
   firmwareVersion: string;
@@ -25,6 +26,17 @@ export interface Device {
     longitude: number;
     label?: string;
   };
+}
+
+export interface DeviceType {
+  typeId: string;
+  name: string;
+  icon?: string;
+}
+
+export interface DeviceCredentials {
+  username: string;
+  password: string;
 }
 
 export interface TelemetryPoint {
