@@ -1,9 +1,10 @@
 import Organization from "./organization.model";
 
 export async function seedOrganization() {
+    const organizationId = process.env.ADMIN_ORGANIZATION_ID || "ORG001";
 
     const exists = await Organization.findOne({
-        organizationId: "ORG001"
+        organizationId
     });
 
     if (exists)
@@ -11,9 +12,13 @@ export async function seedOrganization() {
 
     await Organization.create({
 
-        organizationId: "ORG001",
+        organizationId,
 
-        name: "Default Organization"
+        name: process.env.ORGANIZATION_NAME || "Default Organization",
+
+        ...(process.env.ORGANIZATION_LOGO
+            ? { logo: process.env.ORGANIZATION_LOGO }
+            : {})
 
     });
 

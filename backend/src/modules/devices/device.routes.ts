@@ -6,6 +6,7 @@ import {
 } from "./device.controller";
 import {
     createDevice,
+    deleteDevice,
     getDeviceState,
     getDeviceWeather,
     listDeviceTypes,
@@ -13,7 +14,7 @@ import {
     updateDeviceLocation
 } from "./device.controller";
 import { listDevices } from "./device.controller";
-import { requireAuth, requireRole } from "../../middleware/auth.middleware";
+import { requireAuth } from "../../middleware/auth.middleware";
 
 const router = Router();
 export const internalDeviceRouter = Router();
@@ -42,7 +43,6 @@ router.get("/", requireAuth, listDevices);
 router.post(
     "/",
     requireAuth,
-    requireRole("admin"),
     createDevice
 );
 
@@ -51,6 +51,7 @@ router.get(
     requireAuth,
     listDeviceTypes
 );
+router.delete("/:deviceId", requireAuth, deleteDevice);
 
 router.patch(
     "/:deviceId",

@@ -21,8 +21,8 @@ async function start() {
 
     await seedDeviceTypes();
 
-    await seedDevices();
     await seedAdmin();
+    await seedDevices();
 
     startDeviceMonitor();
 

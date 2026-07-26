@@ -1,4 +1,5 @@
 export type Role = "admin" | "user";
+export type Theme = "default" | "dark" | "spring" | "summer" | "autumn" | "winter";
 
 export interface User {
   userId: string;
@@ -8,6 +9,11 @@ export interface User {
   role: Role;
   active?: boolean;
   primaryAdmin?: boolean;
+  nickname?: string;
+  profilePhoto?: string;
+  deviceLimit?: number | null;
+  deviceCount?: number;
+  theme?: Theme;
   createdAt?: string;
 }
 
@@ -17,6 +23,8 @@ export interface Device {
   typeId: string;
   typeName?: string;
   name: string;
+  ownerUserId?: string;
+  owner?: Pick<User, "userId" | "name" | "nickname" | "email">;
   hardware: string;
   firmwareVersion: string;
   online: boolean;
@@ -29,9 +37,17 @@ export interface Device {
   };
 }
 
+export interface Organization {
+  organizationId: string;
+  name: string;
+  logo?: string;
+}
+
 export interface DeviceType {
   typeId: string;
   name: string;
+  ownerUserId?: string;
+  owner?: Pick<User, "userId" | "name" | "nickname" | "email">;
   icon?: string;
 }
 

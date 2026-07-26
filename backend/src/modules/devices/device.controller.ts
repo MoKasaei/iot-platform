@@ -10,9 +10,13 @@ import DeviceType from "../device-types/device-type.model";
 import bcrypt from "bcrypt";
 import crypto from "node:crypto";
 import { generateDevicePassword } from "../../shared/utils/password";
+import User from "../users/user.model";
+import Telemetry from "../telemetry/telemetry.model";
+import Command from "../commands/command.model";
+import { deviceAccessFilter } from "./device.access";
 
 export async function listDevices(req: AuthRequest, res: Response) {
-    const devices = await Device.find({ organizationId: req.user!.organizationId })
+    const devices = await Device.find(deviceAccessFilter(req))
         .select("-mqtt.passwordHash")
         .sort({ name: 1 });
     const types = await DeviceType.find({
@@ -21,12 +25,18 @@ export async function listDevices(req: AuthRequest, res: Response) {
     const typeNames = new Map(
         types.map(type => [type.typeId, type.name])
     );
+    const owners = req.user!.role === "admin"
+        ? await User.find({ userId: { $in: devices.map(device => device.ownerUserId).filter((id): id is string => Boolean(id)) } })
+            .select("userId name nickname email")
+        : [];
+    const ownerMap = new Map(owners.map(owner => [owner.userId, owner]));
 
     return res.json({
         success: true,
         devices: devices.map(device => ({
             ...device.toObject(),
-            typeName: typeNames.get(device.typeId) || device.typeId
+            typeName: typeNames.get(device.typeId) || device.typeId,
+            ...(req.user!.role === "admin" ? { owner: device.ownerUserId ? ownerMap.get(device.ownerUserId) : undefined } : {})
         }))
     });
 }
@@ -110,8 +120,7 @@ export async function getDeviceState(
 
         const device =
             await Device.findOne({
-                deviceId,
-                organizationId: req.user!.organizationId
+                ...deviceAccessFilter(req, String(deviceId))
             });
 
 
@@ -141,7 +150,8 @@ export async function getDeviceState(
                 state: device.state,
                 location: device.location,
                 lastSeen: device.lastSeen,
-                lastCommand: device.lastCommand
+                lastCommand: device.lastCommand,
+                ...(req.user!.role === "admin" ? { ownerUserId: device.ownerUserId } : {})
             }
 
         });
@@ -187,11 +197,18 @@ export async function createDevice(
         typeof req.body.typeId === "string"
             ? req.body.typeId.trim()
             : "";
+    const deviceId =
+        typeof req.body.deviceId === "string"
+            ? req.body.deviceId.trim().toUpperCase()
+            : "";
+    const ownerUserId = req.user!.role === "admin"
+        ? (typeof req.body.ownerUserId === "string" && req.body.ownerUserId ? req.body.ownerUserId : undefined)
+        : req.user!.userId;
 
-    if (!name || name.length > 120) {
+    if (!name || name.length > 120 || !/^[A-Z0-9][A-Z0-9_-]{2,63}$/.test(deviceId)) {
         return res.status(400).json({
             success: false,
-            error: "Device name is required and must be 120 characters or less"
+            error: "Enter a name and a unique device ID using 3-64 letters, numbers, dashes, or underscores"
         });
     }
 
@@ -203,8 +220,22 @@ export async function createDevice(
         });
     }
 
+    if (ownerUserId) {
+        const owner = await User.findOne({
+            userId: ownerUserId,
+            organizationId: req.user!.organizationId,
+            active: true
+        });
+        if (!owner) return res.status(400).json({ success: false, error: "Select a valid active owner" });
+        const ownedCount = await Device.countDocuments({ ownerUserId, organizationId: req.user!.organizationId });
+        if (owner.deviceLimit !== null && ownedCount >= owner.deviceLimit) {
+            return res.status(409).json({ success: false, error: `This account has reached its ${owner.deviceLimit}-device limit` });
+        }
+    }
+    if (await Device.exists({ deviceId })) {
+        return res.status(409).json({ success: false, error: "That device ID is already registered" });
+    }
     const suffix = crypto.randomBytes(5).toString("hex");
-    const deviceId = crypto.randomUUID();
     const username = `device-${suffix}`;
     const password = generateDevicePassword();
     const passwordHash = await bcrypt.hash(password, 10);
@@ -212,6 +243,7 @@ export async function createDevice(
     const device = await Device.create({
         deviceId,
         organizationId: req.user!.organizationId,
+        ownerUserId,
         typeId,
         name,
         hardware:
@@ -248,19 +280,49 @@ export async function renameDevice(
             ? req.body.name.trim()
             : "";
 
-    if (!name || name.length > 120) {
+    const changingOwner = req.user!.role === "admin" &&
+        Object.prototype.hasOwnProperty.call(req.body, "ownerUserId");
+    if (!changingOwner && (!name || name.length > 120)) {
         return res.status(400).json({
             success: false,
             error: "Device name is required and must be 120 characters or less"
         });
     }
 
+    const updates: Record<string, unknown> = {};
+    if (name) updates.name = name;
+    if (changingOwner) {
+        const ownerUserId = req.body.ownerUserId;
+        if (ownerUserId !== null && typeof ownerUserId !== "string") {
+            return res.status(400).json({ success: false, error: "Select a valid owner or unassigned" });
+        }
+        if (ownerUserId) {
+            const owner = await User.findOne({
+                userId: ownerUserId,
+                organizationId: req.user!.organizationId,
+                active: true
+            });
+            if (!owner) return res.status(400).json({ success: false, error: "Select a valid active owner" });
+            const ownedCount = await Device.countDocuments({
+                ownerUserId,
+                organizationId: req.user!.organizationId,
+                deviceId: { $ne: String(req.params.deviceId) }
+            });
+            if (owner.deviceLimit !== null && ownedCount >= owner.deviceLimit) {
+                return res.status(409).json({ success: false, error: `This account has reached its ${owner.deviceLimit}-device limit` });
+            }
+            updates.ownerUserId = ownerUserId;
+        } else {
+            updates.ownerUserId = null;
+        }
+    }
+
     const device = await Device.findOneAndUpdate(
         {
             deviceId: String(req.params.deviceId),
-            organizationId: req.user!.organizationId
+            ...deviceAccessFilter(req, String(req.params.deviceId))
         },
-        { $set: { name } },
+        { $set: updates },
         { new: true }
     ).select("-mqtt.passwordHash");
 
@@ -309,7 +371,7 @@ export async function updateDeviceLocation(
     const device = await Device.findOneAndUpdate(
         {
             deviceId: String(req.params.deviceId),
-            organizationId: req.user!.organizationId
+            ...deviceAccessFilter(req, String(req.params.deviceId))
         },
         {
             $set: {
@@ -342,7 +404,7 @@ export async function getDeviceWeather(
     try {
         const device = await Device.findOne({
             deviceId: String(req.params.deviceId),
-            organizationId: req.user!.organizationId
+            ...deviceAccessFilter(req, String(req.params.deviceId))
         }).select("location");
 
         if (!device) {
@@ -379,4 +441,18 @@ export async function getDeviceWeather(
             error: "Current weather is temporarily unavailable"
         });
     }
+}
+
+export async function deleteDevice(req: AuthRequest, res: Response) {
+    const device = await Device.findOne(deviceAccessFilter(req, String(req.params.deviceId)));
+    if (!device) return res.status(404).json({ success: false, error: "Device not found" });
+    if (req.body?.confirmation !== device.name) {
+        return res.status(400).json({ success: false, error: "Type the device name to confirm permanent deletion" });
+    }
+    await Promise.all([
+        Telemetry.deleteMany({ organizationId: device.organizationId, deviceId: device.deviceId }),
+        Command.deleteMany({ organizationId: device.organizationId, deviceId: device.deviceId })
+    ]);
+    await device.deleteOne();
+    return res.json({ success: true });
 }

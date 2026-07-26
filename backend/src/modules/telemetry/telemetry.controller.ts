@@ -3,6 +3,7 @@ import { saveTelemetry } from "./telemetry.service";
 import Device from "../devices/device.model";
 import Telemetry from "./telemetry.model";
 import { AuthRequest } from "../../middleware/auth.middleware";
+import { deviceAccessFilter } from "../devices/device.access";
 
 const legacyStatusKeys = [
     "TempSet", "WinSum", "Eco", "Spk", "AutoManual", "Fan1", "Fan2",
@@ -178,9 +179,12 @@ export async function getTelemetry(
 
 
         const limit =
-            Number(req.query.limit) || 100;
+            Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
 
-
+        const allowed = await Device.exists(deviceAccessFilter(req, String(deviceId)));
+        if (!allowed) {
+            return res.status(404).json({ success: false, error: "Device not found" });
+        }
 
         const data =
             await Telemetry.find({

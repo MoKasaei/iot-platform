@@ -22,7 +22,12 @@ export async function authenticate(email: string, password: string) {
         token: jwt.sign(payload, env.jwtSecret, { expiresIn: "12h" }),
         user: {
             ...payload,
-            name: user.name
+            name: user.name,
+            nickname: user.nickname,
+            profilePhoto: user.profilePhoto,
+            deviceLimit: user.deviceLimit,
+            theme: user.theme,
+            primaryAdmin: user.email.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase()
         }
     };
 }
