@@ -26,7 +26,7 @@ export async function listDevices(req: AuthRequest, res: Response) {
         types.map(type => [type.typeId, type.name])
     );
     const owners = req.user!.role === "admin"
-        ? await User.find({ userId: { $in: devices.map(device => device.ownerUserId) } })
+        ? await User.find({ userId: { $in: devices.map(device => device.ownerUserId).filter((id): id is string => Boolean(id)) } })
             .select("userId name nickname email")
         : [];
     const ownerMap = new Map(owners.map(owner => [owner.userId, owner]));
@@ -36,7 +36,7 @@ export async function listDevices(req: AuthRequest, res: Response) {
         devices: devices.map(device => ({
             ...device.toObject(),
             typeName: typeNames.get(device.typeId) || device.typeId,
-            ...(req.user!.role === "admin" ? { owner: ownerMap.get(device.ownerUserId) } : {})
+            ...(req.user!.role === "admin" ? { owner: device.ownerUserId ? ownerMap.get(device.ownerUserId) : undefined } : {})
         }))
     });
 }
@@ -150,7 +150,8 @@ export async function getDeviceState(
                 state: device.state,
                 location: device.location,
                 lastSeen: device.lastSeen,
-                lastCommand: device.lastCommand
+                lastCommand: device.lastCommand,
+                ...(req.user!.role === "admin" ? { ownerUserId: device.ownerUserId } : {})
             }
 
         });
@@ -200,8 +201,8 @@ export async function createDevice(
         typeof req.body.deviceId === "string"
             ? req.body.deviceId.trim().toUpperCase()
             : "";
-    const ownerUserId = req.user!.role === "admin" && typeof req.body.ownerUserId === "string"
-        ? req.body.ownerUserId
+    const ownerUserId = req.user!.role === "admin"
+        ? (typeof req.body.ownerUserId === "string" && req.body.ownerUserId ? req.body.ownerUserId : undefined)
         : req.user!.userId;
 
     if (!name || name.length > 120 || !/^[A-Z0-9][A-Z0-9_-]{2,63}$/.test(deviceId)) {
@@ -219,15 +220,17 @@ export async function createDevice(
         });
     }
 
-    const owner = await User.findOne({
-        userId: ownerUserId,
-        organizationId: req.user!.organizationId,
-        active: true
-    });
-    if (!owner) return res.status(400).json({ success: false, error: "Select a valid active owner" });
-    const ownedCount = await Device.countDocuments({ ownerUserId, organizationId: req.user!.organizationId });
-    if (ownedCount >= owner.deviceLimit) {
-        return res.status(409).json({ success: false, error: `This account has reached its ${owner.deviceLimit}-device limit` });
+    if (ownerUserId) {
+        const owner = await User.findOne({
+            userId: ownerUserId,
+            organizationId: req.user!.organizationId,
+            active: true
+        });
+        if (!owner) return res.status(400).json({ success: false, error: "Select a valid active owner" });
+        const ownedCount = await Device.countDocuments({ ownerUserId, organizationId: req.user!.organizationId });
+        if (ownedCount >= owner.deviceLimit) {
+            return res.status(409).json({ success: false, error: `This account has reached its ${owner.deviceLimit}-device limit` });
+        }
     }
     if (await Device.exists({ deviceId })) {
         return res.status(409).json({ success: false, error: "That device ID is already registered" });
@@ -277,11 +280,41 @@ export async function renameDevice(
             ? req.body.name.trim()
             : "";
 
-    if (!name || name.length > 120) {
+    const changingOwner = req.user!.role === "admin" &&
+        Object.prototype.hasOwnProperty.call(req.body, "ownerUserId");
+    if (!changingOwner && (!name || name.length > 120)) {
         return res.status(400).json({
             success: false,
             error: "Device name is required and must be 120 characters or less"
         });
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (name) updates.name = name;
+    if (changingOwner) {
+        const ownerUserId = req.body.ownerUserId;
+        if (ownerUserId !== null && typeof ownerUserId !== "string") {
+            return res.status(400).json({ success: false, error: "Select a valid owner or unassigned" });
+        }
+        if (ownerUserId) {
+            const owner = await User.findOne({
+                userId: ownerUserId,
+                organizationId: req.user!.organizationId,
+                active: true
+            });
+            if (!owner) return res.status(400).json({ success: false, error: "Select a valid active owner" });
+            const ownedCount = await Device.countDocuments({
+                ownerUserId,
+                organizationId: req.user!.organizationId,
+                deviceId: { $ne: String(req.params.deviceId) }
+            });
+            if (ownedCount >= owner.deviceLimit) {
+                return res.status(409).json({ success: false, error: `This account has reached its ${owner.deviceLimit}-device limit` });
+            }
+            updates.ownerUserId = ownerUserId;
+        } else {
+            updates.ownerUserId = null;
+        }
     }
 
     const device = await Device.findOneAndUpdate(
@@ -289,7 +322,7 @@ export async function renameDevice(
             deviceId: String(req.params.deviceId),
             ...deviceAccessFilter(req, String(req.params.deviceId))
         },
-        { $set: { name } },
+        { $set: updates },
         { new: true }
     ).select("-mqtt.passwordHash");
 

@@ -27,3 +27,19 @@
 .row-actions { display: flex; align-items: center; gap: 8px; }
 .success { padding: 10px 12px; color: #167146; background: #eaf8f1; border-radius: 8px; }
 .toolbar select { margin-left: auto; padding: 10px 34px 10px 12px; border: 1px solid #dce4eb; border-radius: 9px; background: white; }
+.user-table .table-head,.user-table .table-row{grid-template-columns:minmax(220px,2fr) minmax(90px,.7fr) minmax(90px,.7fr) minmax(210px,1.25fr)}
+.row-actions{min-width:0;flex-wrap:wrap;justify-content:flex-start}
+.checkbox-row{flex-direction:row!important;align-items:center}
+.checkbox-row input{width:17px;height:17px}
+.device-admin-panel{display:flex;align-items:flex-end;gap:20px;padding:20px 22px;margin-bottom:22px;overflow:visible}
+.device-admin-panel>div{display:flex;flex-direction:column;gap:8px;margin-right:auto}
+.device-admin-panel label{display:flex;flex-direction:column;gap:7px;font-size:.78rem;font-weight:700}
+.device-admin-panel select{min-width:280px;border:1px solid #d7deea;border-radius:9px;padding:10px 12px;background:white}
+@media(max-width:760px){
+  .user-table .table-row{grid-template-columns:minmax(0,1fr) auto;padding:16px}
+  .user-table .table-row>.role{display:none}
+  .user-table .table-row>.status{justify-self:end}
+  .user-table .row-actions{grid-column:1/-1;justify-content:flex-end;border-top:1px solid var(--line);padding-top:10px}
+  .device-admin-panel{align-items:stretch;flex-direction:column}
+  .device-admin-panel select{width:100%;min-width:0}
+}

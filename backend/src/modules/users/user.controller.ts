@@ -63,7 +63,7 @@ export async function createUser(req: AuthRequest, res: Response) {
 }
 
 export async function updateUser(req: AuthRequest, res: Response) {
-    const { role, active, name, nickname, deviceLimit } = req.body ?? {};
+    const { role, active, nickname, deviceLimit } = req.body ?? {};
     const updates: Record<string, unknown> = {};
     const target = await User.findOne({
         userId: req.params.userId,
@@ -95,7 +95,6 @@ export async function updateUser(req: AuthRequest, res: Response) {
         updates.role = role;
     }
     if (typeof active === "boolean") updates.active = active;
-    if (typeof name === "string" && name.trim()) updates.name = name.trim();
     if (nickname !== undefined) {
         if (typeof nickname !== "string" || nickname.length > 80) {
             return res.status(400).json({ success: false, error: "Nickname must be 80 characters or less" });

@@ -215,7 +215,7 @@ function Stat({ icon: Icon, label, value, note, tone = "" }: { icon: typeof Box;
 
 function DeviceRow({ device, showOwner }: { device: Device; showOwner?: boolean }) {
   const readings = getDisplayReadings(device.state || {});
-  return <NavLink className="device-row" to={`/devices/${device.deviceId}`}><div className="device-icon"><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.typeName || device.typeId}{showOwner && device.owner ? ` · ${device.owner.nickname || device.owner.name}` : ""}</small></div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{readings.map(reading => <span key={reading.label}><small>{reading.label}</small>{reading.value}</span>)}</div><ChevronRight className="row-arrow" /></NavLink>;
+  return <NavLink className="device-row" to={`/devices/${device.deviceId}`}><div className="device-icon"><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.typeName || device.typeId}{showOwner ? ` · ID: ${device.deviceId} · ${device.owner ? device.owner.nickname || device.owner.name : "Unassigned"}` : ""}</small></div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{readings.map(reading => <span key={reading.label}><small>{reading.label}</small>{reading.value}</span>)}</div><ChevronRight className="row-arrow" /></NavLink>;
 }
 
 function Devices() {
@@ -309,7 +309,7 @@ function NewDevice({
       <div className="modal-title"><div><h2>Add a device</h2><p>Create a device and generate its MQTT credentials.</p></div><button type="button" onClick={onClose}><X /></button></div>
       <label>Device ID<input value={form.deviceId} onChange={event => setForm({ ...form, deviceId: event.target.value.toUpperCase() })} placeholder="AHU-LOBBY-01" pattern="[A-Za-z0-9][A-Za-z0-9_-]{2,63}" required /><small>Use the unique ID configured in the physical device.</small></label>
       <label>Device name<input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Lobby air handler" maxLength={120} required /></label>
-      {user?.role === "admin" && <label>Owner<select value={form.ownerUserId} onChange={event => setForm({ ...form, ownerUserId: event.target.value })} required>{users.map(owner => <option key={owner.userId} value={owner.userId}>{owner.nickname || owner.name} ({owner.deviceCount || 0}/{owner.deviceLimit ?? 1})</option>)}</select></label>}
+      {user?.role === "admin" && <label>Owner<select value={form.ownerUserId} onChange={event => setForm({ ...form, ownerUserId: event.target.value })}><option value="">Unassigned</option>{users.map(owner => <option key={owner.userId} value={owner.userId}>{owner.nickname || owner.name} ({owner.deviceCount || 0}/{owner.deviceLimit ?? 1})</option>)}</select></label>}
       <label>Device type<select value={form.typeId} onChange={event => setForm({ ...form, typeId: event.target.value })} required>{types.map(type => <option key={type.typeId} value={type.typeId}>{type.name}</option>)}</select></label>
       <label>Hardware (optional)<input value={form.hardware} onChange={event => setForm({ ...form, hardware: event.target.value })} placeholder="ESP32" /></label>
       <label>Firmware version (optional)<input value={form.firmwareVersion} onChange={event => setForm({ ...form, firmwareVersion: event.target.value })} placeholder="1.0.0" /></label>
@@ -489,6 +489,7 @@ function fixed(value: unknown, digits = 1): string {
 function DeviceDetail() {
   const { deviceId = "" } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [device, setDevice] = useState<Device | null>(null);
   const [telemetry, setTelemetry] = useState<TelemetryPoint[]>([]);
   const [weather, setWeather] = useState<WeatherReading | null>(null);
@@ -498,6 +499,9 @@ function DeviceDetail() {
   const [showLocation, setShowLocation] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [owners, setOwners] = useState<User[]>([]);
+  const [ownerUserId, setOwnerUserId] = useState("");
+  const [savingOwner, setSavingOwner] = useState(false);
 
   async function loadWeather() {
     try {
@@ -519,6 +523,7 @@ function DeviceDetail() {
     ])
       .then(([deviceResponse, telemetryResponse]) => {
         setDevice(deviceResponse.device);
+        setOwnerUserId(deviceResponse.device.ownerUserId || "");
         setNameDraft(deviceResponse.device.name);
         setTelemetry(telemetryResponse.telemetry);
         if (hasCoordinates(deviceResponse.device.location)) {
@@ -530,6 +535,11 @@ function DeviceDetail() {
         }
       })
       .catch(loadError => setError(loadError.message));
+    if (user?.role === "admin") {
+      api<{ users: User[] }>("/users")
+        .then(response => setOwners(response.users.filter(owner => owner.active)))
+        .catch(loadError => setError(loadError.message));
+    }
   }, [deviceId]);
 
   async function saveLocation() {
@@ -581,6 +591,19 @@ function DeviceDetail() {
     }
   }
 
+  async function saveOwner() {
+    setSavingOwner(true); setError("");
+    try {
+      const response = await api<{ device: Device }>(`/devices/${deviceId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ownerUserId: ownerUserId || null })
+      });
+      setDevice(current => current ? { ...current, ownerUserId: response.device.ownerUserId } : current);
+    } catch (ownerError) {
+      setError(ownerError instanceof Error ? ownerError.message : "Could not change owner");
+    } finally { setSavingOwner(false); }
+  }
+
   if (!device) {
     return <main className="content"><div className="loading-text">Loading device history...</div>{error && <div className="error">{error}</div>}</main>;
   }
@@ -600,6 +623,8 @@ function DeviceDetail() {
       <div className="page-actions"><button className="secondary-button" onClick={() => setShowLocation(true)}><MapPin size={16} /> {hasCoordinates(device.location) ? "Change location" : "Set location"}</button><button className="icon-danger" title="Permanently delete device" onClick={removeDevice}><Trash2 size={17} /></button><NavLink className="secondary-link" to="/devices">Back to devices</NavLink></div>
     </div>
     {error && <div className="error">{error}</div>}
+
+    {user?.role === "admin" && <section className="panel device-admin-panel"><div><span className="eyebrow">ADMIN DEVICE DETAILS</span><strong>Device ID: <code>{device.deviceId}</code></strong></div><label>Assigned owner<select value={ownerUserId} onChange={event => setOwnerUserId(event.target.value)}><option value="">Unassigned</option>{owners.map(owner => <option key={owner.userId} value={owner.userId}>{owner.nickname || owner.name} · {owner.email}</option>)}</select></label><button className="primary-button compact" disabled={savingOwner || ownerUserId === (device.ownerUserId || "")} onClick={saveOwner}>{savingOwner ? "Saving…" : "Save owner"}</button></section>}
 
     <section className="device-metrics">
       <Stat icon={Thermometer} label="Device temperature" value={`${fixed(numberFromAny(device.state || {}, "RoomTemp", "temperature"))} °C`} note="Latest device reading" tone="orange" />
@@ -654,6 +679,7 @@ function DeviceDetail() {
 function UserAccess() {
   const [users, setUsers] = useState<User[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
   const [error, setError] = useState("");
   const load = () => api<{ users: User[] }>("/users").then(r => setUsers(r.users)).catch(e => setError(e.message));
   useEffect(() => { load(); }, []);
@@ -661,19 +687,6 @@ function UserAccess() {
   async function toggle(user: User) {
     try {
       await api(`/users/${user.userId}`, { method: "PATCH", body: JSON.stringify({ active: !user.active }) });
-      load();
-    } catch (e) { setError(e instanceof Error ? e.message : "Update failed"); }
-  }
-
-  async function edit(user: User) {
-    const name = window.prompt("Display name", user.name);
-    if (name === null || !name.trim()) return;
-    const nickname = window.prompt("Admin nickname (optional)", user.nickname || "");
-    if (nickname === null) return;
-    const limitText = window.prompt("Maximum devices for this user", String(user.deviceLimit ?? 1));
-    if (limitText === null) return;
-    try {
-      await api(`/users/${user.userId}`, { method: "PATCH", body: JSON.stringify({ name, nickname, deviceLimit: Number(limitText) }) });
       load();
     } catch (e) { setError(e instanceof Error ? e.message : "Update failed"); }
   }
@@ -692,10 +705,31 @@ function UserAccess() {
     {error && <div className="error">{error}</div>}
     <section className="panel user-table">
       <div className="table-head"><span>User</span><span>Devices</span><span>Status</span><span>Actions</span></div>
-      {users.map(user => <div className="table-row" key={user.userId}><div className="user-cell"><span className="avatar">{user.profilePhoto ? <img src={user.profilePhoto} alt="" /> : user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.nickname || user.name}</strong><small>{user.nickname ? `${user.name} · ` : ""}{user.email}{user.primaryAdmin ? " · Primary admin" : ""}</small></div></div><span className="role"><ShieldCheck size={15} /> {user.deviceCount || 0} / {user.deviceLimit ?? 1}</span><span className={user.active ? "status online" : "status"}><i />{user.active ? "Active" : "Disabled"}</span><div className="row-actions"><button className="text-button" onClick={() => edit(user)}>Edit</button><button className="text-button" disabled={user.primaryAdmin} onClick={() => toggle(user)}>{user.primaryAdmin ? "Protected" : user.active ? "Disable" : "Enable"}</button><button className="icon-danger" disabled={user.primaryAdmin} onClick={() => remove(user)} title="Permanently delete"><Trash2 size={16} /></button></div></div>)}
+      {users.map(user => <div className="table-row" key={user.userId}><div className="user-cell"><span className="avatar">{user.profilePhoto ? <img src={user.profilePhoto} alt="" /> : user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.nickname || user.name}</strong><small>{user.nickname ? `${user.name} · ` : ""}{user.email}{user.primaryAdmin ? " · Primary admin" : ""}</small></div></div><span className="role"><ShieldCheck size={15} /> {user.deviceCount || 0} / {user.deviceLimit ?? 1}</span><span className={user.active ? "status online" : "status"}><i />{user.active ? "Active" : "Disabled"}</span><div className="row-actions"><button className="text-button" onClick={() => setEditingUser(user)}>Edit</button><button className="text-button" disabled={user.primaryAdmin} onClick={() => toggle(user)}>{user.primaryAdmin ? "Protected" : user.active ? "Disable" : "Enable"}</button><button className="icon-danger" disabled={user.primaryAdmin} onClick={() => remove(user)} title="Permanently delete"><Trash2 size={16} /></button></div></div>)}
     </section>
     {showForm && <NewUser onClose={() => setShowForm(false)} onCreated={() => { setShowForm(false); load(); }} />}
+    {editingUser && <EditUser user={editingUser} onClose={() => setEditingUser(null)} onSaved={() => { setEditingUser(null); load(); }} />}
   </main>;
+}
+
+function EditUser({ user, onClose, onSaved }: { user: User; onClose: () => void; onSaved: () => void }) {
+  const [form, setForm] = useState({ nickname: user.nickname || "", role: user.role, active: user.active !== false, deviceLimit: user.deviceLimit ?? 1 });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError("");
+    try {
+      await api(`/users/${user.userId}`, { method: "PATCH", body: JSON.stringify(form) });
+      onSaved();
+    } catch (e) { setError(e instanceof Error ? e.message : "Update failed"); setBusy(false); }
+  }
+  return <div className="modal-backdrop"><form className="modal" onSubmit={submit}><div className="modal-title"><div><h2>Manage user</h2><p>{user.name} · {user.email}</p></div><button type="button" onClick={onClose}><X /></button></div>
+    <label>Admin nickname<input value={form.nickname} onChange={e => setForm({ ...form, nickname: e.target.value })} maxLength={80} placeholder="Optional internal label" /></label>
+    <label>Device allowance<input type="number" min={0} max={100} value={form.deviceLimit} onChange={e => setForm({ ...form, deviceLimit: Number(e.target.value) })} /></label>
+    <label>Access level<select disabled={user.primaryAdmin} value={form.role} onChange={e => setForm({ ...form, role: e.target.value as Role })}><option value="user">User</option><option value="admin">Administrator</option></select></label>
+    <label className="checkbox-row"><input type="checkbox" disabled={user.primaryAdmin} checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} /> Account active</label>
+    {error && <div className="error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button compact" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></div>
+  </form></div>;
 }
 
 function NewUser({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {

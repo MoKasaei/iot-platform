@@ -6,7 +6,7 @@ export interface IDevice extends Document {
     deviceId: string;
 
     organizationId: string;
-    ownerUserId: string;
+    ownerUserId?: string;
 
     typeId: string;
 
@@ -124,7 +124,6 @@ const DeviceSchema = new Schema<IDevice>(
     },
     ownerUserId: {
         type: String,
-        required: true,
         index: true
     },
 
