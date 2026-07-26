@@ -4,12 +4,26 @@ import Device from "../devices/device.model";
 import Telemetry from "./telemetry.model";
 import { AuthRequest } from "../../middleware/auth.middleware";
 
+const legacyStatusKeys = [
+    "TempSet", "WinSum", "Eco", "Spk", "AutoManual", "Fan1", "Fan2",
+    "Night", "PumpONOFF", "NormalTroque", "DischargeTime", "CoilTemp",
+    "StageStatus", "TimerONOFF", "TimerSet", "SystemONOFF", "TurboONOFF"
+];
+
 function normalizeTelemetry(value: unknown): unknown {
     if (typeof value === "number") {
         if (!Number.isFinite(value)) {
             return null;
         }
         return Math.round(value * 10) / 10;
+    }
+
+    if (
+        typeof value === "string" &&
+        value.trim() !== "" &&
+        /^-?\d+(\.\d+)?$/.test(value.trim())
+    ) {
+        return Math.round(Number(value) * 10) / 10;
     }
 
     if (Array.isArray(value)) {
@@ -46,8 +60,23 @@ export async function receiveTelemetry(
                 error: "Telemetry data must be an object"
             });
         }
-        const normalizedData =
+        const normalizedPayload =
             normalizeTelemetry(data) as Record<string, unknown>;
+        const normalizedData = Object.fromEntries(
+            Object.entries(normalizedPayload).map(([key, value]) => {
+                const legacyMatch = /^statuse(\d+)$/i.exec(key);
+                const mappedKey = legacyMatch
+                    ? legacyStatusKeys[Number(legacyMatch[1]) - 1] || key
+                    : key;
+                return [mappedKey, value];
+            })
+        );
+        const stateUpdates = Object.fromEntries(
+            Object.entries(normalizedData).map(([key, value]) => [
+                `state.${key}`,
+                value
+            ])
+        );
 
 
 
@@ -88,11 +117,11 @@ export async function receiveTelemetry(
             },
 
             {
-                online:true,
-
-                lastSeen:new Date(),
-
-                state: normalizedData
+                $set: {
+                    online: true,
+                    lastSeen: new Date(),
+                    ...stateUpdates
+                }
             }
 
         );

@@ -1,8 +1,8 @@
-import { FormEvent, useEffect, useState } from "react";
+import { CSSProperties, FormEvent, useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import {
   Activity, Bell, Box, ChevronRight, Gauge, LayoutDashboard, LogOut,
-  Droplets, History, MapPin, Menu, Plus, Search, Settings, ShieldCheck,
+  Droplets, MapPin, Menu, Plus, Search, Settings, ShieldCheck,
   Thermometer, Users, Wifi, WifiOff, X
 } from "lucide-react";
 import { divIcon, LatLngExpression } from "leaflet";
@@ -183,7 +183,8 @@ function Stat({ icon: Icon, label, value, note, tone = "" }: { icon: typeof Box;
 }
 
 function DeviceRow({ device }: { device: Device }) {
-  return <NavLink className="device-row" to={`/devices/${device.deviceId}`}><div className="device-icon"><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.typeName || device.typeId}</small></div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{Object.entries(device.state || {}).slice(0, 2).map(([key, value]) => <span key={key}><small>{key}</small>{String(value)}</span>)}</div><ChevronRight className="row-arrow" /></NavLink>;
+  const readings = getDisplayReadings(device.state || {});
+  return <NavLink className="device-row" to={`/devices/${device.deviceId}`}><div className="device-icon"><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.typeName || device.typeId}</small></div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{readings.map(reading => <span key={reading.label}><small>{reading.label}</small>{reading.value}</span>)}</div><ChevronRight className="row-arrow" /></NavLink>;
 }
 
 function Devices() {
@@ -290,6 +291,78 @@ function numberFrom(data: Record<string, unknown>, key: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
+function numberFromAny(data: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const key of keys) {
+    const value = numberFrom(data, key);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function getDisplayReadings(data: Record<string, unknown>) {
+  const temperature = numberFromAny(data, "RoomTemp", "temperature");
+  const humidity = numberFromAny(data, "Humidity", "humidity");
+  return [
+    ...(temperature !== null ? [{ label: "Temperature", value: `${fixed(temperature)} °C` }] : []),
+    ...(humidity !== null ? [{ label: "Humidity", value: `${fixed(humidity)}%` }] : [])
+  ].slice(0, 2);
+}
+
+function MotorSpeedGauge({ value }: { value: number | null }) {
+  const speed = value === null ? 0 : Math.max(0, Math.min(100, value));
+  return <article className="stat motor-stat">
+    <span>Motor speed</span>
+    <div className="motor-gauge" style={{ "--motor-speed": `${speed * 3.6}deg` } as CSSProperties}>
+      <div><strong>{value === null ? "—" : fixed(value, 0)}</strong><small>{value === null ? "" : "%"}</small></div>
+    </div>
+    <small>Current drive output</small>
+  </article>;
+}
+
+const sensorDefinitions = [
+  { key: "Watt", label: "Power", unit: "W" },
+  { key: "Current", label: "Current", unit: "A" },
+  { key: "CoilTemp", label: "Coil temperature", unit: "°C" },
+  { key: "DriveTemp", label: "Drive temperature", unit: "°C" },
+  { key: "RadiatorTemp", label: "Radiator temperature", unit: "°C" },
+  { key: "FanIntakeTemp", label: "Fan intake", unit: "°C" },
+  { key: "WaterTankTemp", label: "Water tank", unit: "°C" },
+  { key: "TowerInletTemp", label: "Tower inlet", unit: "°C" },
+  { key: "TowerOutletTemp", label: "Tower outlet", unit: "°C" },
+  { key: "TDS", label: "Water quality", unit: "ppm" }
+];
+
+const statusDefinitions = [
+  { key: "LevelSwitch", label: "Level switch" },
+  { key: "CircularPump", label: "Circulation pump" },
+  { key: "DrainPump", label: "Drain pump" },
+  { key: "SystemONOFF", label: "System" },
+  { key: "TurboONOFF", label: "Turbo" },
+  { key: "Errors", label: "Errors" }
+];
+
+function EquipmentReadings({ state }: { state: Record<string, unknown> }) {
+  const sensors = sensorDefinitions
+    .map(definition => ({ ...definition, value: numberFrom(state, definition.key) }))
+    .filter(sensor => sensor.value !== null);
+  const statuses = statusDefinitions
+    .filter(definition => state[definition.key] !== undefined)
+    .map(definition => ({
+      ...definition,
+      active: !["0", "false", "off", ""].includes(String(state[definition.key]).toLowerCase())
+    }));
+
+  if (!sensors.length && !statuses.length) return null;
+
+  return <section className="panel equipment-panel">
+    <div className="panel-head"><div><h2>Equipment readings</h2></div></div>
+    <div className="equipment-grid">
+      {sensors.map(sensor => <article className="equipment-reading" key={sensor.key}><span>{sensor.label}</span><strong>{fixed(sensor.value)} <small>{sensor.unit}</small></strong></article>)}
+      {statuses.map(status => <article className="equipment-status" key={status.key}><i className={status.active ? "active" : ""} /><span>{status.label}</span><strong>{status.active ? "On" : "Off"}</strong></article>)}
+    </div>
+  </section>;
+}
+
 function hasCoordinates(location: Device["location"]): location is NonNullable<Device["location"]> {
   return Boolean(
     location &&
@@ -299,6 +372,7 @@ function hasCoordinates(location: Device["location"]): location is NonNullable<D
 }
 
 function fixed(value: unknown, digits = 1): string {
+  if (value === null || value === undefined || value === "") return "—";
   const number = Number(value);
   return Number.isFinite(number) ? number.toFixed(digits) : "—";
 }
@@ -393,8 +467,8 @@ function DeviceDetail() {
     time: new Date(point.timestamp).toLocaleString([], {
       month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
     }),
-    temperature: numberFrom(point.data, "temperature"),
-    humidity: numberFrom(point.data, "humidity")
+    temperature: numberFromAny(point.data, "RoomTemp", "temperature"),
+    humidity: numberFromAny(point.data, "Humidity", "humidity")
   }));
   const mapCenter: LatLngExpression = [location.latitude, location.longitude];
 
@@ -406,11 +480,13 @@ function DeviceDetail() {
     {error && <div className="error">{error}</div>}
 
     <section className="device-metrics">
-      <Stat icon={Thermometer} label="Device temperature" value={`${numberFrom(device.state || {}, "temperature")?.toFixed(1) ?? "—"} °C`} note="Latest device reading" tone="orange" />
-      <Stat icon={Droplets} label="Device humidity" value={`${numberFrom(device.state || {}, "humidity")?.toFixed(1) ?? "—"}%`} note="Latest device reading" tone="blue" />
-      <Stat icon={History} label="History points" value={String(telemetry.length)} note="Seven-day retention" />
+      <Stat icon={Thermometer} label="Device temperature" value={`${fixed(numberFromAny(device.state || {}, "RoomTemp", "temperature"))} °C`} note="Latest device reading" tone="orange" />
+      <Stat icon={Droplets} label="Device humidity" value={`${fixed(numberFromAny(device.state || {}, "Humidity", "humidity"))}%`} note="Latest device reading" tone="blue" />
+      <MotorSpeedGauge value={numberFromAny(device.state || {}, "MotorSpeed")} />
       <Stat icon={Thermometer} label="Outdoor temperature" value={weather ? `${fixed(weather.temperature)} °C` : "—"} note={hasCoordinates(device.location) ? "Current outdoor reading" : "Set device location"} tone="green" />
     </section>
+
+    <EquipmentReadings state={device.state || {}} />
 
     <section className="panel chart-panel">
       <div className="panel-head"><div><h2>Temperature and humidity history</h2><p>Previous device telemetry, oldest to newest</p></div></div>
@@ -471,7 +547,7 @@ function UserAccess() {
     {error && <div className="error">{error}</div>}
     <section className="panel user-table">
       <div className="table-head"><span>User</span><span>Role</span><span>Status</span><span>Action</span></div>
-      {users.map(user => <div className="table-row" key={user.userId}><div className="user-cell"><span className="avatar">{user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.name}</strong><small>{user.email}</small></div></div><span className="role"><ShieldCheck size={15} /> {user.role}</span><span className={user.active ? "status online" : "status"}><i />{user.active ? "Active" : "Disabled"}</span><button className="text-button" onClick={() => toggle(user)}>{user.active ? "Disable" : "Enable"}</button></div>)}
+      {users.map(user => <div className="table-row" key={user.userId}><div className="user-cell"><span className="avatar">{user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.name}</strong><small>{user.email}{user.primaryAdmin ? " · Primary admin" : ""}</small></div></div><span className="role"><ShieldCheck size={15} /> {user.role}</span><span className={user.active ? "status online" : "status"}><i />{user.active ? "Active" : "Disabled"}</span><button className="text-button" disabled={user.primaryAdmin} title={user.primaryAdmin ? "The primary administrator cannot be disabled" : undefined} onClick={() => toggle(user)}>{user.primaryAdmin ? "Protected" : user.active ? "Disable" : "Enable"}</button></div>)}
     </section>
     {showForm && <NewUser onClose={() => setShowForm(false)} onCreated={() => { setShowForm(false); load(); }} />}
   </main>;

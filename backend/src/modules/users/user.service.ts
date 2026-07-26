@@ -13,7 +13,13 @@ export async function seedAdmin() {
     if (password.length < 8) {
         throw new Error("ADMIN_PASSWORD must be at least 8 characters");
     }
-    if (await User.exists({ email: email.toLowerCase() })) return;
+    const existing = await User.findOne({ email: email.toLowerCase() });
+    if (existing) {
+        existing.role = "admin";
+        existing.active = true;
+        await existing.save();
+        return;
+    }
 
     await User.create({
         userId: randomUUID(),
