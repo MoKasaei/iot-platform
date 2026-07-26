@@ -154,7 +154,7 @@ function Stat({ icon: Icon, label, value, note, tone = "" }: { icon: typeof Box;
 }
 
 function DeviceRow({ device }: { device: Device }) {
-  return <div className="device-row"><div className="device-icon"><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.deviceId} · {device.typeId}</small></div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{Object.entries(device.state || {}).slice(0, 2).map(([key, value]) => <span key={key}><small>{key}</small>{String(value)}</span>)}</div><ChevronRight className="row-arrow" /></div>;
+  return <NavLink className="device-row" to={`/devices/${device.deviceId}`}><div className="device-icon"><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.deviceId} · {device.typeId}</small></div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{Object.entries(device.state || {}).slice(0, 2).map(([key, value]) => <span key={key}><small>{key}</small>{String(value)}</span>)}</div><ChevronRight className="row-arrow" /></NavLink>;
 }
 
 function Devices() {
@@ -164,11 +164,6 @@ function Devices() {
   return <main className="content">
     <div className="page-title"><div><span className="eyebrow">ASSET DIRECTORY</span><h1>Devices</h1><p>Monitor every device assigned to your organization.</p></div></div>
     <div className="toolbar"><div className="input-search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Find a device" /></div></div>
-    {!loading && <div className="device-detail-links">{filtered.map(device =>
-      <NavLink key={device.deviceId} to={`/devices/${device.deviceId}`}>
-        <Gauge size={17} /><span><strong>{device.name}</strong><small>History, map & weather</small></span><ChevronRight size={16} />
-      </NavLink>
-    )}</div>}
     {error && <div className="error">{error}</div>}
     <section className="panel"><div className="device-list">{loading ? <div className="loading-text">Loading devices…</div> : filtered.length ? filtered.map(d => <DeviceRow key={d.deviceId} device={d} />) : <Empty />}</div></section>
   </main>;
@@ -194,6 +189,19 @@ function numberFrom(data: Record<string, unknown>, key: string): number | null {
   const entry = Object.entries(data).find(([name]) => name.toLowerCase() === key.toLowerCase());
   const value = Number(entry?.[1]);
   return Number.isFinite(value) ? value : null;
+}
+
+function hasCoordinates(location: Device["location"]): location is NonNullable<Device["location"]> {
+  return Boolean(
+    location &&
+    Number.isFinite(location.latitude) &&
+    Number.isFinite(location.longitude)
+  );
+}
+
+function fixed(value: unknown, digits = 1): string {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(digits) : "—";
 }
 
 function DeviceDetail() {
@@ -226,7 +234,7 @@ function DeviceDetail() {
       .then(([deviceResponse, telemetryResponse]) => {
         setDevice(deviceResponse.device);
         setTelemetry(telemetryResponse.telemetry);
-        if (deviceResponse.device.location) {
+        if (hasCoordinates(deviceResponse.device.location)) {
           setLocation({
             ...deviceResponse.device.location,
             label: deviceResponse.device.location.label || ""
@@ -278,7 +286,7 @@ function DeviceDetail() {
       <Stat icon={Thermometer} label="Device temperature" value={`${numberFrom(device.state || {}, "temperature")?.toFixed(1) ?? "—"} °C`} note="Latest device reading" tone="orange" />
       <Stat icon={Droplets} label="Device humidity" value={`${numberFrom(device.state || {}, "humidity")?.toFixed(1) ?? "—"}%`} note="Latest device reading" tone="blue" />
       <Stat icon={History} label="History points" value={String(telemetry.length)} note="Seven-day retention" />
-      <Stat icon={MapPin} label="Location" value={device.location ? "Set" : "Missing"} note={device.location?.label || "Select on the map"} tone="green" />
+      <Stat icon={MapPin} label="Location" value={hasCoordinates(device.location) ? "Set" : "Missing"} note={device.location?.label || "Select on the map"} tone="green" />
     </section>
 
     <section className="panel chart-panel">
@@ -306,7 +314,7 @@ function DeviceDetail() {
         </MapContainer>
         <div className="location-form">
           <label>Location label<input value={location.label} onChange={event => setLocation({ ...location, label: event.target.value })} placeholder="Roof plant room" /></label>
-          <div className="coordinates"><span>{location.latitude.toFixed(5)}</span><span>{location.longitude.toFixed(5)}</span></div>
+          <div className="coordinates"><span>{fixed(location.latitude, 5)}</span><span>{fixed(location.longitude, 5)}</span></div>
           <button className="primary-button compact" disabled={saving} onClick={saveLocation}>{saving ? "Saving..." : "Save location"}</button>
         </div>
       </section>
@@ -314,10 +322,10 @@ function DeviceDetail() {
       <section className="panel weather-panel">
         <div className="panel-head"><div><h2>Nearby outdoor conditions</h2><p>Current weather for the closest model grid point</p></div></div>
         {weather ? <div className="weather-content">
-          <div className="weather-primary"><Thermometer /><strong>{weather.temperature.toFixed(1)} °C</strong><span>Outdoor dry-bulb temperature</span></div>
+          <div className="weather-primary"><Thermometer /><strong>{fixed(weather.temperature)} °C</strong><span>Outdoor dry-bulb temperature</span></div>
           <div className="weather-values">
             <div><Droplets /><span><strong>{weather.relativeHumidity}%</strong><small>Relative humidity</small></span></div>
-            <div><Activity /><span><strong>{weather.dewPoint.toFixed(1)} °C</strong><small>Dew point</small></span></div>
+            <div><Activity /><span><strong>{fixed(weather.dewPoint)} °C</strong><small>Dew point</small></span></div>
           </div>
           <div className="weather-source"><span>Source: {weather.source}</span><span>Grid distance: {weather.distanceKm} km</span><span>Observed: {weather.observedAt}</span></div>
           <p className="calculation-note">Ready for a later psychrometric step: wet-bulb temperature can be calculated from dry-bulb temperature, relative humidity, and pressure.</p>
