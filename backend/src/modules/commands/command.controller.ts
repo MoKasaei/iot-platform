@@ -19,6 +19,24 @@ export async function sendCommand(
             value
         } = req.body;
 
+        if (command === "set_parameter") {
+            const allowedParameters = new Set([
+                "TempSet", "Eco", "AutoManual", "Fan1", "Fan2", "Night",
+                "PumpONOFF", "TimerONOFF", "TimerSet", "SystemONOFF",
+                "TurboONOFF"
+            ]);
+            if (
+                !value ||
+                typeof value.key !== "string" ||
+                !allowedParameters.has(value.key)
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Invalid writable device parameter"
+                });
+            }
+        }
+
 
         const organizationId = req.user!.organizationId;
 

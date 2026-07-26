@@ -1,4 +1,4 @@
-import { CSSProperties, FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import {
   Activity, Bell, Box, ChevronRight, Gauge, LayoutDashboard, LogOut,
@@ -312,7 +312,11 @@ function MotorSpeedGauge({ value }: { value: number | null }) {
   const speed = value === null ? 0 : Math.max(0, Math.min(100, value));
   return <article className="stat motor-stat">
     <span>Motor speed</span>
-    <div className="motor-gauge" style={{ "--motor-speed": `${speed * 3.6}deg` } as CSSProperties}>
+    <div className="motor-gauge">
+      <svg viewBox="0 0 110 62" aria-hidden="true">
+        <path className="gauge-track" pathLength="100" d="M 10 55 A 45 45 0 0 1 100 55" />
+        <path className="gauge-value" pathLength="100" strokeDasharray={`${speed} 100`} d="M 10 55 A 45 45 0 0 1 100 55" />
+      </svg>
       <div><strong>{value === null ? "—" : fixed(value, 0)}</strong><small>{value === null ? "" : "%"}</small></div>
     </div>
     <small>Current drive output</small>
@@ -359,6 +363,61 @@ function EquipmentReadings({ state }: { state: Record<string, unknown> }) {
     <div className="equipment-grid">
       {sensors.map(sensor => <article className="equipment-reading" key={sensor.key}><span>{sensor.label}</span><strong>{fixed(sensor.value)} <small>{sensor.unit}</small></strong></article>)}
       {statuses.map(status => <article className="equipment-status" key={status.key}><i className={status.active ? "active" : ""} /><span>{status.label}</span><strong>{status.active ? "On" : "Off"}</strong></article>)}
+    </div>
+  </section>;
+}
+
+const toggleControls = [
+  { key: "SystemONOFF", label: "System" },
+  { key: "Eco", label: "Eco mode" },
+  { key: "AutoManual", label: "Automatic mode" },
+  { key: "Fan1", label: "Fan 1" },
+  { key: "Fan2", label: "Fan 2" },
+  { key: "Night", label: "Night mode" },
+  { key: "PumpONOFF", label: "Pump" },
+  { key: "TurboONOFF", label: "Turbo" }
+];
+
+function DeviceControls({
+  deviceId,
+  state
+}: {
+  deviceId: string;
+  state: Record<string, unknown>;
+}) {
+  const [pending, setPending] = useState("");
+  const [temperature, setTemperature] = useState(
+    String(numberFrom(state, "TempSet") ?? 22)
+  );
+  const [message, setMessage] = useState("");
+
+  async function send(key: string, value: string | number) {
+    setPending(key);
+    setMessage("");
+    try {
+      await api(`/devices/${deviceId}/command`, {
+        method: "POST",
+        body: JSON.stringify({
+          command: "set_parameter",
+          value: { key, value }
+        })
+      });
+      setMessage("Command sent");
+    } catch (commandError) {
+      setMessage(commandError instanceof Error ? commandError.message : "Command failed");
+    } finally {
+      setPending("");
+    }
+  }
+
+  return <section className="panel controls-panel">
+    <div className="panel-head"><div><h2>Device controls</h2></div>{message && <span className="control-message">{message}</span>}</div>
+    <div className="controls-grid">
+      <div className="setpoint-control"><span>Temperature setpoint</span><div><input type="number" step="0.1" value={temperature} onChange={event => setTemperature(event.target.value)} /><span>°C</span><button disabled={pending === "TempSet"} onClick={() => send("TempSet", Number(temperature))}>Set</button></div></div>
+      {toggleControls.map(control => {
+        const active = !["0", "false", "off", "", "undefined"].includes(String(state[control.key]).toLowerCase());
+        return <button className={`toggle-control ${active ? "active" : ""}`} disabled={pending === control.key} key={control.key} onClick={() => send(control.key, active ? "0" : "1")}><span>{control.label}</span><i><b /></i></button>;
+      })}
     </div>
   </section>;
 }
@@ -483,10 +542,11 @@ function DeviceDetail() {
       <Stat icon={Thermometer} label="Device temperature" value={`${fixed(numberFromAny(device.state || {}, "RoomTemp", "temperature"))} °C`} note="Latest device reading" tone="orange" />
       <Stat icon={Droplets} label="Device humidity" value={`${fixed(numberFromAny(device.state || {}, "Humidity", "humidity"))}%`} note="Latest device reading" tone="blue" />
       <MotorSpeedGauge value={numberFromAny(device.state || {}, "MotorSpeed")} />
-      <Stat icon={Thermometer} label="Outdoor temperature" value={weather ? `${fixed(weather.temperature)} °C` : "—"} note={hasCoordinates(device.location) ? "Current outdoor reading" : "Set device location"} tone="green" />
+      <Stat icon={Thermometer} label="Outdoor temperature" value={weather ? `${fixed(weather.temperature)} °C` : "—"} note={device.location?.label || "Set device location"} tone="green" />
     </section>
 
     <EquipmentReadings state={device.state || {}} />
+    <DeviceControls deviceId={deviceId} state={device.state || {}} />
 
     <section className="panel chart-panel">
       <div className="panel-head"><div><h2>Temperature and humidity history</h2><p>Previous device telemetry, oldest to newest</p></div></div>

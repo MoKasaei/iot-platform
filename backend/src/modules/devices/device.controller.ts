@@ -5,7 +5,7 @@ import {
 } from "./device.service";
 import Device from "./device.model";
 import { AuthRequest } from "../../middleware/auth.middleware";
-import { getCurrentWeather } from "./weather.service";
+import { getCurrentWeather, getLocationName } from "./weather.service";
 import DeviceType from "../device-types/device-type.model";
 import bcrypt from "bcrypt";
 import crypto from "node:crypto";
@@ -299,6 +299,13 @@ export async function updateDeviceLocation(
         });
     }
 
+    let resolvedLabel: string | undefined;
+    try {
+        resolvedLabel = await getLocationName(latitude, longitude);
+    } catch (error) {
+        console.warn("Reverse geocoding failed:", error);
+    }
+
     const device = await Device.findOneAndUpdate(
         {
             deviceId: String(req.params.deviceId),
@@ -309,7 +316,9 @@ export async function updateDeviceLocation(
                 location: {
                     latitude,
                     longitude,
-                    ...(label ? { label } : {})
+                    ...((resolvedLabel || label)
+                        ? { label: resolvedLabel || label }
+                        : {})
                 }
             }
         },

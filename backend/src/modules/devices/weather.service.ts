@@ -84,3 +84,45 @@ export async function getCurrentWeather(
         )
     };
 }
+
+export async function getLocationName(
+    latitude: number,
+    longitude: number
+): Promise<string | undefined> {
+    const query = new URLSearchParams({
+        lat: String(latitude),
+        lon: String(longitude),
+        format: "jsonv2",
+        addressdetails: "1",
+        zoom: "14"
+    });
+    const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?${query.toString()}`,
+        {
+            headers: {
+                "User-Agent": "IoTPlatform/1.0 (https://github.com/MoKasaei/iot-platform)"
+            },
+            signal: AbortSignal.timeout(8000)
+        }
+    );
+
+    if (!response.ok) return undefined;
+
+    const result = await response.json() as {
+        address?: Record<string, string>;
+    };
+    const address = result.address || {};
+    const neighborhood =
+        address.neighbourhood ||
+        address.suburb ||
+        address.quarter ||
+        address.city_district;
+    const city =
+        address.city ||
+        address.town ||
+        address.village ||
+        address.municipality;
+
+    return [...new Set([neighborhood, city].filter(Boolean))]
+        .join(", ") || undefined;
+}
