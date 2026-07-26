@@ -5,7 +5,9 @@ import {
     deviceHeartbeat
 } from "./device.controller";
 import {
-    getDeviceState
+    getDeviceState,
+    getDeviceWeather,
+    updateDeviceLocation
 } from "./device.controller";
 import { listDevices } from "./device.controller";
 import { requireAuth } from "../../middleware/auth.middleware";
@@ -33,6 +35,18 @@ internalDeviceRouter.post(
 
 
 router.get("/", requireAuth, listDevices);
+
+router.patch(
+    "/:deviceId/location",
+    requireAuth,
+    updateDeviceLocation
+);
+
+router.get(
+    "/:deviceId/weather",
+    requireAuth,
+    getDeviceWeather
+);
 
 router.get(
     "/:deviceId",

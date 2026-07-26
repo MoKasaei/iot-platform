@@ -1,12 +1,21 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import {
   Activity, Bell, Box, ChevronRight, Gauge, LayoutDashboard, LogOut,
-  Menu, Plus, Search, Settings, ShieldCheck, Users, Wifi, WifiOff, X
+  Droplets, History, MapPin, Menu, Plus, Search, Settings, ShieldCheck,
+  Thermometer, Users, Wifi, WifiOff, X
 } from "lucide-react";
+import { divIcon, LatLngExpression } from "leaflet";
+import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
+import {
+  CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip,
+  XAxis, YAxis
+} from "recharts";
 import { api } from "./api";
 import { useAuth } from "./auth";
-import type { Device, Role, User } from "./types";
+import type {
+  Device, Role, TelemetryPoint, User, WeatherReading
+} from "./types";
 
 function Login() {
   const { user, login } = useAuth();
@@ -91,6 +100,7 @@ function Shell() {
       <Routes>
         <Route path="/" element={<Overview />} />
         <Route path="/devices" element={<Devices />} />
+        <Route path="/devices/:deviceId" element={<DeviceDetail />} />
         <Route path="/users" element={user.role === "admin" ? <UserAccess /> : <Navigate to="/" />} />
         <Route path="/alerts" element={<Placeholder title="Alerts" text="Alarm rules and event history will appear here." />} />
         <Route path="/settings" element={<Placeholder title="Settings" text="Workspace and notification settings will appear here." />} />
@@ -154,8 +164,166 @@ function Devices() {
   return <main className="content">
     <div className="page-title"><div><span className="eyebrow">ASSET DIRECTORY</span><h1>Devices</h1><p>Monitor every device assigned to your organization.</p></div></div>
     <div className="toolbar"><div className="input-search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Find a device" /></div></div>
+    {!loading && <div className="device-detail-links">{filtered.map(device =>
+      <NavLink key={device.deviceId} to={`/devices/${device.deviceId}`}>
+        <Gauge size={17} /><span><strong>{device.name}</strong><small>History, map & weather</small></span><ChevronRight size={16} />
+      </NavLink>
+    )}</div>}
     {error && <div className="error">{error}</div>}
     <section className="panel"><div className="device-list">{loading ? <div className="loading-text">Loading devices…</div> : filtered.length ? filtered.map(d => <DeviceRow key={d.deviceId} device={d} />) : <Empty />}</div></section>
+  </main>;
+}
+
+const deviceMarker = divIcon({
+  className: "device-map-marker",
+  html: "<span></span>",
+  iconSize: [24, 24],
+  iconAnchor: [12, 12]
+});
+
+function MapClick({ onSelect }: { onSelect: (latitude: number, longitude: number) => void }) {
+  useMapEvents({
+    click(event) {
+      onSelect(event.latlng.lat, event.latlng.lng);
+    }
+  });
+  return null;
+}
+
+function numberFrom(data: Record<string, unknown>, key: string): number | null {
+  const entry = Object.entries(data).find(([name]) => name.toLowerCase() === key.toLowerCase());
+  const value = Number(entry?.[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function DeviceDetail() {
+  const { deviceId = "" } = useParams();
+  const [device, setDevice] = useState<Device | null>(null);
+  const [telemetry, setTelemetry] = useState<TelemetryPoint[]>([]);
+  const [weather, setWeather] = useState<WeatherReading | null>(null);
+  const [location, setLocation] = useState({ latitude: 35.6892, longitude: 51.389, label: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function loadWeather() {
+    try {
+      const response = await api<{ weather: WeatherReading }>(`/devices/${deviceId}/weather`);
+      setWeather(response.weather);
+    } catch (weatherError) {
+      setWeather(null);
+      if (weatherError instanceof Error && !weatherError.message.includes("Set the device location")) {
+        setError(weatherError.message);
+      }
+    }
+  }
+
+  useEffect(() => {
+    setError("");
+    Promise.all([
+      api<{ device: Device }>(`/devices/${deviceId}`),
+      api<{ telemetry: TelemetryPoint[] }>(`/devices/${deviceId}/telemetry?limit=100`)
+    ])
+      .then(([deviceResponse, telemetryResponse]) => {
+        setDevice(deviceResponse.device);
+        setTelemetry(telemetryResponse.telemetry);
+        if (deviceResponse.device.location) {
+          setLocation({
+            ...deviceResponse.device.location,
+            label: deviceResponse.device.location.label || ""
+          });
+          void loadWeather();
+        }
+      })
+      .catch(loadError => setError(loadError.message));
+  }, [deviceId]);
+
+  async function saveLocation() {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await api<{ device: Device }>(`/devices/${deviceId}/location`, {
+        method: "PATCH",
+        body: JSON.stringify(location)
+      });
+      setDevice(response.device);
+      await loadWeather();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save location");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!device) {
+    return <main className="content"><div className="loading-text">Loading device history...</div>{error && <div className="error">{error}</div>}</main>;
+  }
+
+  const chartData = telemetry.map(point => ({
+    time: new Date(point.timestamp).toLocaleString([], {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
+    }),
+    temperature: numberFrom(point.data, "temperature"),
+    humidity: numberFrom(point.data, "humidity")
+  }));
+  const mapCenter: LatLngExpression = [location.latitude, location.longitude];
+
+  return <main className="content">
+    <div className="page-title">
+      <div><span className="eyebrow">DEVICE INSIGHT</span><h1>{device.name}</h1><p>{device.deviceId} · {device.typeId} · Up to 100 recent readings</p></div>
+      <NavLink className="secondary-link" to="/devices">Back to devices</NavLink>
+    </div>
+    {error && <div className="error">{error}</div>}
+
+    <section className="device-metrics">
+      <Stat icon={Thermometer} label="Device temperature" value={`${numberFrom(device.state || {}, "temperature")?.toFixed(1) ?? "—"} °C`} note="Latest device reading" tone="orange" />
+      <Stat icon={Droplets} label="Device humidity" value={`${numberFrom(device.state || {}, "humidity")?.toFixed(1) ?? "—"}%`} note="Latest device reading" tone="blue" />
+      <Stat icon={History} label="History points" value={String(telemetry.length)} note="Seven-day retention" />
+      <Stat icon={MapPin} label="Location" value={device.location ? "Set" : "Missing"} note={device.location?.label || "Select on the map"} tone="green" />
+    </section>
+
+    <section className="panel chart-panel">
+      <div className="panel-head"><div><h2>Temperature and humidity history</h2><p>Previous device telemetry, oldest to newest</p></div></div>
+      {chartData.length ? <div className="telemetry-chart"><ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData} margin={{ top: 12, right: 20, left: 0, bottom: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e7edf3" />
+          <XAxis dataKey="time" tick={{ fontSize: 11 }} minTickGap={38} />
+          <YAxis yAxisId="temp" tick={{ fontSize: 11 }} unit="°" />
+          <YAxis yAxisId="humidity" orientation="right" domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
+          <Tooltip /><Legend />
+          <Line yAxisId="temp" type="monotone" dataKey="temperature" name="Temperature °C" stroke="#e67e32" strokeWidth={2} dot={false} connectNulls />
+          <Line yAxisId="humidity" type="monotone" dataKey="humidity" name="Humidity %" stroke="#168fb5" strokeWidth={2} dot={false} connectNulls />
+        </LineChart>
+      </ResponsiveContainer></div> : <Empty />}
+    </section>
+
+    <div className="location-grid">
+      <section className="panel location-panel">
+        <div className="panel-head"><div><h2>Device location</h2><p>Click the map to place this device</p></div></div>
+        <MapContainer key={`${location.latitude}-${location.longitude}`} center={mapCenter} zoom={12} scrollWheelZoom className="device-map">
+          <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <MapClick onSelect={(latitude, longitude) => setLocation(current => ({ ...current, latitude, longitude }))} />
+          <Marker position={mapCenter} icon={deviceMarker} />
+        </MapContainer>
+        <div className="location-form">
+          <label>Location label<input value={location.label} onChange={event => setLocation({ ...location, label: event.target.value })} placeholder="Roof plant room" /></label>
+          <div className="coordinates"><span>{location.latitude.toFixed(5)}</span><span>{location.longitude.toFixed(5)}</span></div>
+          <button className="primary-button compact" disabled={saving} onClick={saveLocation}>{saving ? "Saving..." : "Save location"}</button>
+        </div>
+      </section>
+
+      <section className="panel weather-panel">
+        <div className="panel-head"><div><h2>Nearby outdoor conditions</h2><p>Current weather for the closest model grid point</p></div></div>
+        {weather ? <div className="weather-content">
+          <div className="weather-primary"><Thermometer /><strong>{weather.temperature.toFixed(1)} °C</strong><span>Outdoor dry-bulb temperature</span></div>
+          <div className="weather-values">
+            <div><Droplets /><span><strong>{weather.relativeHumidity}%</strong><small>Relative humidity</small></span></div>
+            <div><Activity /><span><strong>{weather.dewPoint.toFixed(1)} °C</strong><small>Dew point</small></span></div>
+          </div>
+          <div className="weather-source"><span>Source: {weather.source}</span><span>Grid distance: {weather.distanceKm} km</span><span>Observed: {weather.observedAt}</span></div>
+          <p className="calculation-note">Ready for a later psychrometric step: wet-bulb temperature can be calculated from dry-bulb temperature, relative humidity, and pressure.</p>
+        </div> : <div className="empty weather-empty"><MapPin /><strong>Set a device location</strong><span>Outdoor temperature and humidity will appear after the location is saved.</span></div>}
+      </section>
+    </div>
   </main>;
 }
 
