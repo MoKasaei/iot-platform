@@ -118,11 +118,32 @@ function useDevices() {
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   useEffect(() => {
-    setLoading(true);
-    api<{ devices: Device[] }>("/devices")
-      .then(r => setDevices(r.devices))
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
+    let active = true;
+
+    async function load(showLoading: boolean) {
+      if (showLoading) setLoading(true);
+      try {
+        const response = await api<{ devices: Device[] }>("/devices");
+        if (active) {
+          setDevices(response.devices);
+          setError("");
+        }
+      } catch (loadError) {
+        if (active) {
+          setError(loadError instanceof Error ? loadError.message : "Could not load devices");
+        }
+      } finally {
+        if (active && showLoading) setLoading(false);
+      }
+    }
+
+    void load(true);
+    const interval = window.setInterval(() => void load(false), 3000);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
   }, [revision]);
   return {
     devices,

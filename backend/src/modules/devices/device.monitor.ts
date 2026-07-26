@@ -16,7 +16,7 @@ export function startDeviceMonitor(){
 
             const timeout =
                 new Date(
-                    Date.now() - 120000
+                    Date.now() - 15000
                 );
 
 
@@ -59,7 +59,7 @@ export function startDeviceMonitor(){
         }
 
 
-    },60000);
+    },5000);
 
 
 }
