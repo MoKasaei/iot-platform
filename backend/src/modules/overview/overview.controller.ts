@@ -38,6 +38,26 @@ function hasError(state: Record<string, unknown> | undefined) {
     });
 }
 
+function errorCodes(state: Record<string, unknown> | undefined) {
+    if (!state) return [];
+    return Object.entries(state).flatMap(([key, value]) => {
+        if (!/(error|fault|alarm)/i.test(key)) return [];
+        const normalized = typeof value === "string" ? value.toLowerCase() : value;
+        if ([undefined, null, false, 0, "0", "", "false", "none", "ok"].includes(normalized as never)) {
+            return [];
+        }
+        if (Array.isArray(value)) {
+            return value.map(code => `${key}: ${String(code)}`);
+        }
+        if (value && typeof value === "object") {
+            return Object.entries(value)
+                .filter(([, entry]) => ![false, 0, "0", "", null, undefined].includes(entry as never))
+                .map(([code, entry]) => `${key}.${code}: ${String(entry)}`);
+        }
+        return [`${key}: ${String(value)}`];
+    });
+}
+
 export async function getOverview(req: AuthRequest, res: Response) {
     const organizationId = req.user!.organizationId;
     const [cpuPercent, filesystem, devices, users] = await Promise.all([
@@ -45,8 +65,9 @@ export async function getOverview(req: AuthRequest, res: Response) {
         statfs("/"),
         Device.find({ organizationId })
             .select("deviceId name typeId online location state ownerUserId"),
-        User.find({ organizationId, active: true }).select("role")
+        User.find({ organizationId, active: true }).select("userId name nickname role")
     ]);
+    const ownerMap = new Map(users.map(user => [user.userId, user]));
 
     const totalMemory = os.totalmem();
     const usedMemory = totalMemory - os.freemem();
@@ -63,9 +84,11 @@ export async function getOverview(req: AuthRequest, res: Response) {
             typeId: device.typeId,
             online: device.online,
             error: hasError(device.state),
+            errors: errorCodes(device.state),
             latitude: device.location!.latitude,
             longitude: device.location!.longitude,
-            label: device.location!.label
+            label: device.location!.label,
+            owner: device.ownerUserId ? ownerMap.get(device.ownerUserId) : undefined
         }));
 
     return res.json({

@@ -99,3 +99,24 @@
 .theme-dark{--ring-track:#445166}.theme-dark .system-metric,.theme-dark .overview-totals article,.theme-dark .ring-gauge>div{background:#1b2432;color:#eef4fa;border-color:#344154}.theme-dark .progress-bar{background:#344154}
 @media(max-width:1050px){.system-metrics-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:700px){.system-metrics-grid,.overview-totals{grid-template-columns:1fr}.overview-map{height:340px}}
+.overview-map-panel{border-radius:18px}.overview-map{background:#dcebf0}
+.overview-map .leaflet-control-zoom{border:0!important;box-shadow:0 8px 24px #182a3a26!important}
+.overview-map .leaflet-control-zoom a{border:0!important;color:#2c6170}
+.overview-map .leaflet-popup-content-wrapper{border-radius:15px;box-shadow:0 18px 45px #15263738;padding:0}
+.overview-map .leaflet-popup-content{margin:0;width:270px!important}
+.overview-map .leaflet-popup-tip{box-shadow:3px 3px 8px #1526371f}
+.overview-map-marker span{position:relative;border-width:3px;background:var(--theme-accent);box-shadow:0 0 0 6px color-mix(in srgb,var(--theme-accent) 22%,transparent),0 5px 16px #07111f55}
+.overview-map-marker span:after{content:"";position:absolute;inset:4px;background:white;border-radius:50%}
+.overview-map-marker span.error{background:#df4545;box-shadow:0 0 0 6px #df45452e,0 5px 16px #711d1d55}
+.map-device-card{padding:16px;color:#1f2937}.map-device-card-head{display:flex;align-items:center;gap:10px;margin-bottom:13px}
+.map-device-card-head>div{display:flex;flex-direction:column}.map-device-card-head strong{font:700 .95rem "Manrope"}.map-device-card-head small{font-size:.69rem;color:#7b8795;margin-top:3px}
+.map-state{width:10px;height:10px;border-radius:50%;background:#25b886;box-shadow:0 0 0 5px #25b8861f}.map-state.error{background:#df4545;box-shadow:0 0 0 5px #df45451f}
+.map-device-card dl{margin:0;display:grid;gap:8px}.map-device-card dl>div{display:grid;grid-template-columns:70px 1fr;gap:8px}.map-device-card dt{font-size:.67rem;color:#8b96a3}.map-device-card dd{font-size:.73rem;margin:0;overflow-wrap:anywhere}.map-device-card dd code{font-size:.69rem}
+.map-errors{display:flex;flex-direction:column;gap:5px;background:#fff0f0;border:1px solid #ffd0d0;border-radius:8px;padding:9px;margin-top:11px}.map-errors span{font-size:.66rem;color:#a62e2e;font-weight:700;text-transform:uppercase}.map-errors code{font-size:.68rem;color:#8f2424;overflow-wrap:anywhere}
+.map-device-link{display:flex;align-items:center;justify-content:center;gap:4px;text-decoration:none;background:var(--theme-accent);color:white!important;border-radius:8px;padding:8px;margin-top:12px;font-size:.73rem;font-weight:700}
+.theme-spring .overview-map .leaflet-tile{filter:saturate(.78) hue-rotate(15deg)}
+.theme-summer .overview-map .leaflet-tile{filter:saturate(.9) sepia(.12)}
+.theme-autumn .overview-map .leaflet-tile{filter:saturate(.75) sepia(.22) hue-rotate(-12deg)}
+.theme-winter .overview-map .leaflet-tile{filter:saturate(.55) hue-rotate(8deg) brightness(1.04)}
+.theme-dark .overview-map .leaflet-tile{filter:invert(1) hue-rotate(180deg) brightness(.62) contrast(.92) saturate(.65)}
+.theme-dark .overview-map .leaflet-popup-content-wrapper,.theme-dark .overview-map .leaflet-popup-tip{background:#1b2432;color:#eef4fa}.theme-dark .map-device-card{color:#eef4fa}.theme-dark .map-device-card-head small,.theme-dark .map-device-card dt{color:#aebdca}
