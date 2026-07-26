@@ -200,7 +200,7 @@ function Overview() {
       <Stat icon={ShieldCheck} label="Open alerts" value="0" note="Everything looks clear" tone="blue" />
     </section>
     <section className="panel">
-      <div className="panel-head"><div><h2>Device health</h2><p>Current state of your connected equipment</p></div><NavLink to="/devices">View all <ChevronRight size={16} /></NavLink></div>
+      <div className="panel-head"><div><h2>Your devices</h2><p>Latest readings and connection status</p></div><NavLink to="/devices">View all <ChevronRight size={16} /></NavLink></div>
       <div className="device-list">
         {!loading && latest.length === 0 && <Empty />}
         {latest.map(device => <DeviceRow key={device.deviceId} device={device} />)}
