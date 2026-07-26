@@ -1,12 +1,14 @@
 import mqtt from "mqtt";
+import { env } from "../config/env";
 
 
 const client = mqtt.connect(
-    "mqtt://localhost:1883",
+    env.mqttUrl,
     {
-        username:"backend",
-        password:"backend123",
-        clientId:"service-backend-command"
+        username: env.mqttUsername,
+        password: env.mqttPassword,
+        clientId: env.mqttClientId,
+        reconnectPeriod: 2000
     }
 );
 
@@ -28,6 +30,13 @@ client.on(
             "MQTT publisher error",
             err
         );
+    }
+);
+
+client.on(
+    "reconnect",
+    () => {
+        console.log("MQTT publisher reconnecting");
     }
 );
 

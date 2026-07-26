@@ -11,22 +11,23 @@ import { listDevices } from "./device.controller";
 import { requireAuth } from "../../middleware/auth.middleware";
 
 const router = Router();
+export const internalDeviceRouter = Router();
 
 
-router.post(
-    "/internal/device/online",
+internalDeviceRouter.post(
+    "/online",
     deviceOnline
 );
 
 
-router.post(
-    "/internal/device/offline",
+internalDeviceRouter.post(
+    "/offline",
     deviceOffline
 );
 
 
-router.post(
-    "/internal/device/heartbeat",
+internalDeviceRouter.post(
+    "/heartbeat",
     deviceHeartbeat
 );
 

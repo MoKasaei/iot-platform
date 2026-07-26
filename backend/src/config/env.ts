@@ -19,5 +19,12 @@ export const env = {
 
     jwtSecret: required("JWT_SECRET"),
 
-    mqttPort: Number(process.env.MQTT_PORT || 1883),
+    mqttUrl: process.env.MQTT_URL || "mqtt://127.0.0.1:1883",
+
+    mqttUsername: required("MQTT_BACKEND_USERNAME"),
+
+    mqttPassword: required("MQTT_BACKEND_PASSWORD"),
+
+    mqttClientId:
+        process.env.MQTT_CLIENT_ID || "service-backend-command",
 };
