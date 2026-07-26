@@ -1,12 +1,22 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import {
   Activity, Bell, Box, ChevronRight, Gauge, LayoutDashboard, LogOut,
-  Menu, Plus, Search, Settings, ShieldCheck, Users, Wifi, WifiOff, X
+  Droplets, MapPin, Menu, Plus, Search, Settings, ShieldCheck,
+  Thermometer, Users, Wifi, WifiOff, X
 } from "lucide-react";
+import { divIcon, LatLngExpression } from "leaflet";
+import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
+import {
+  CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip,
+  XAxis, YAxis
+} from "recharts";
 import { api } from "./api";
 import { useAuth } from "./auth";
-import type { Device, Role, User } from "./types";
+import type {
+  Device, DeviceCredentials, DeviceType, Role, TelemetryPoint, User,
+  WeatherReading
+} from "./types";
 
 function Login() {
   const { user, login } = useAuth();
@@ -91,6 +101,7 @@ function Shell() {
       <Routes>
         <Route path="/" element={<Overview />} />
         <Route path="/devices" element={<Devices />} />
+        <Route path="/devices/:deviceId" element={<DeviceDetail />} />
         <Route path="/users" element={user.role === "admin" ? <UserAccess /> : <Navigate to="/" />} />
         <Route path="/alerts" element={<Placeholder title="Alerts" text="Alarm rules and event history will appear here." />} />
         <Route path="/settings" element={<Placeholder title="Settings" text="Workspace and notification settings will appear here." />} />
@@ -105,13 +116,41 @@ function useDevices() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
-    api<{ devices: Device[] }>("/devices")
-      .then(r => setDevices(r.devices))
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
-  return { devices, loading, error };
+    let active = true;
+
+    async function load(showLoading: boolean) {
+      if (showLoading) setLoading(true);
+      try {
+        const response = await api<{ devices: Device[] }>("/devices");
+        if (active) {
+          setDevices(response.devices);
+          setError("");
+        }
+      } catch (loadError) {
+        if (active) {
+          setError(loadError instanceof Error ? loadError.message : "Could not load devices");
+        }
+      } finally {
+        if (active && showLoading) setLoading(false);
+      }
+    }
+
+    void load(true);
+    const interval = window.setInterval(() => void load(false), 3000);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [revision]);
+  return {
+    devices,
+    loading,
+    error,
+    refresh: () => setRevision(value => value + 1)
+  };
 }
 
 function Overview() {
@@ -144,18 +183,408 @@ function Stat({ icon: Icon, label, value, note, tone = "" }: { icon: typeof Box;
 }
 
 function DeviceRow({ device }: { device: Device }) {
-  return <div className="device-row"><div className="device-icon"><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.deviceId} · {device.typeId}</small></div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{Object.entries(device.state || {}).slice(0, 2).map(([key, value]) => <span key={key}><small>{key}</small>{String(value)}</span>)}</div><ChevronRight className="row-arrow" /></div>;
+  const readings = getDisplayReadings(device.state || {});
+  return <NavLink className="device-row" to={`/devices/${device.deviceId}`}><div className="device-icon"><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.typeName || device.typeId}</small></div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{readings.map(reading => <span key={reading.label}><small>{reading.label}</small>{reading.value}</span>)}</div><ChevronRight className="row-arrow" /></NavLink>;
 }
 
 function Devices() {
-  const { devices, loading, error } = useDevices();
+  const { user } = useAuth();
+  const { devices, loading, error, refresh } = useDevices();
   const [query, setQuery] = useState("");
-  const filtered = devices.filter(d => `${d.name} ${d.deviceId} ${d.typeId}`.toLowerCase().includes(query.toLowerCase()));
+  const [showAddDevice, setShowAddDevice] = useState(false);
+  const filtered = devices.filter(d => `${d.name} ${d.typeName || d.typeId}`.toLowerCase().includes(query.toLowerCase()));
   return <main className="content">
-    <div className="page-title"><div><span className="eyebrow">ASSET DIRECTORY</span><h1>Devices</h1><p>Monitor every device assigned to your organization.</p></div></div>
+    <div className="page-title"><div><span className="eyebrow">ASSET DIRECTORY</span><h1>Devices</h1><p>Monitor every device assigned to your organization.</p></div>{user?.role === "admin" && <button className="primary-button compact" onClick={() => setShowAddDevice(true)}><Plus size={18} /> Add device</button>}</div>
     <div className="toolbar"><div className="input-search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Find a device" /></div></div>
     {error && <div className="error">{error}</div>}
     <section className="panel"><div className="device-list">{loading ? <div className="loading-text">Loading devices…</div> : filtered.length ? filtered.map(d => <DeviceRow key={d.deviceId} device={d} />) : <Empty />}</div></section>
+    {showAddDevice && <NewDevice onClose={() => setShowAddDevice(false)} onCreated={refresh} />}
+  </main>;
+}
+
+function NewDevice({
+  onClose,
+  onCreated
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [types, setTypes] = useState<DeviceType[]>([]);
+  const [form, setForm] = useState({
+    name: "",
+    typeId: "",
+    hardware: "",
+    firmwareVersion: ""
+  });
+  const [credentials, setCredentials] = useState<DeviceCredentials | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api<{ types: DeviceType[] }>("/devices/types")
+      .then(response => {
+        setTypes(response.types);
+        if (response.types[0]) {
+          setForm(current => ({ ...current, typeId: response.types[0].typeId }));
+        }
+      })
+      .catch(loadError => setError(loadError.message));
+  }, []);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const response = await api<{
+        device: Device;
+        credentials: DeviceCredentials;
+      }>("/devices", {
+        method: "POST",
+        body: JSON.stringify(form)
+      });
+      setCredentials(response.credentials);
+      onCreated();
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Could not create device");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <div className="modal-backdrop">
+    {credentials ? <div className="modal">
+      <div className="modal-title"><div><h2>Device created</h2><p>Copy these MQTT credentials now. The password is shown only once.</p></div><button type="button" onClick={onClose}><X /></button></div>
+      <div className="credential-box"><label>MQTT username<code>{credentials.username}</code></label><label>MQTT password<code>{credentials.password}</code></label></div>
+      <div className="modal-actions"><button className="primary-button compact" onClick={onClose}>Done</button></div>
+    </div> : <form className="modal" onSubmit={submit}>
+      <div className="modal-title"><div><h2>Add a device</h2><p>Create a device and generate its MQTT credentials.</p></div><button type="button" onClick={onClose}><X /></button></div>
+      <label>Device name<input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Lobby air handler" maxLength={120} required /></label>
+      <label>Device type<select value={form.typeId} onChange={event => setForm({ ...form, typeId: event.target.value })} required>{types.map(type => <option key={type.typeId} value={type.typeId}>{type.name}</option>)}</select></label>
+      <label>Hardware (optional)<input value={form.hardware} onChange={event => setForm({ ...form, hardware: event.target.value })} placeholder="ESP32" /></label>
+      <label>Firmware version (optional)<input value={form.firmwareVersion} onChange={event => setForm({ ...form, firmwareVersion: event.target.value })} placeholder="1.0.0" /></label>
+      {error && <div className="error">{error}</div>}
+      <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button compact" disabled={busy || !form.typeId}>{busy ? "Creating..." : "Create device"}</button></div>
+    </form>}
+  </div>;
+}
+
+const deviceMarker = divIcon({
+  className: "device-map-marker",
+  html: "<span></span>",
+  iconSize: [24, 24],
+  iconAnchor: [12, 12]
+});
+
+function MapClick({ onSelect }: { onSelect: (latitude: number, longitude: number) => void }) {
+  useMapEvents({
+    click(event) {
+      onSelect(event.latlng.lat, event.latlng.lng);
+    }
+  });
+  return null;
+}
+
+function numberFrom(data: Record<string, unknown>, key: string): number | null {
+  const entry = Object.entries(data).find(([name]) => name.toLowerCase() === key.toLowerCase());
+  const value = Number(entry?.[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function numberFromAny(data: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const key of keys) {
+    const value = numberFrom(data, key);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function getDisplayReadings(data: Record<string, unknown>) {
+  const temperature = numberFromAny(data, "RoomTemp", "temperature");
+  const humidity = numberFromAny(data, "Humidity", "humidity");
+  return [
+    ...(temperature !== null ? [{ label: "Temperature", value: `${fixed(temperature)} °C` }] : []),
+    ...(humidity !== null ? [{ label: "Humidity", value: `${fixed(humidity)}%` }] : [])
+  ].slice(0, 2);
+}
+
+function MotorSpeedGauge({ value }: { value: number | null }) {
+  const speed = value === null ? 0 : Math.max(0, Math.min(100, value));
+  return <article className="stat motor-stat">
+    <span>Motor speed</span>
+    <div className="motor-gauge">
+      <svg viewBox="0 0 110 62" aria-hidden="true">
+        <path className="gauge-track" pathLength="100" d="M 10 55 A 45 45 0 0 1 100 55" />
+        <path className="gauge-value" pathLength="100" strokeDasharray={`${speed} 100`} d="M 10 55 A 45 45 0 0 1 100 55" />
+      </svg>
+      <div><strong>{value === null ? "—" : fixed(value, 0)}</strong><small>{value === null ? "" : "%"}</small></div>
+    </div>
+    <small>Current drive output</small>
+  </article>;
+}
+
+const sensorDefinitions = [
+  { key: "Watt", label: "Power", unit: "W" },
+  { key: "Current", label: "Current", unit: "A" },
+  { key: "CoilTemp", label: "Coil temperature", unit: "°C" },
+  { key: "DriveTemp", label: "Drive temperature", unit: "°C" },
+  { key: "RadiatorTemp", label: "Radiator temperature", unit: "°C" },
+  { key: "FanIntakeTemp", label: "Fan intake", unit: "°C" },
+  { key: "WaterTankTemp", label: "Water tank", unit: "°C" },
+  { key: "TowerInletTemp", label: "Tower inlet", unit: "°C" },
+  { key: "TowerOutletTemp", label: "Tower outlet", unit: "°C" },
+  { key: "TDS", label: "Water quality", unit: "ppm" }
+];
+
+const statusDefinitions = [
+  { key: "LevelSwitch", label: "Level switch" },
+  { key: "CircularPump", label: "Circulation pump" },
+  { key: "DrainPump", label: "Drain pump" },
+  { key: "SystemONOFF", label: "System" },
+  { key: "TurboONOFF", label: "Turbo" },
+  { key: "Errors", label: "Errors" }
+];
+
+function EquipmentReadings({ state }: { state: Record<string, unknown> }) {
+  const sensors = sensorDefinitions
+    .map(definition => ({ ...definition, value: numberFrom(state, definition.key) }))
+    .filter(sensor => sensor.value !== null);
+  const statuses = statusDefinitions
+    .filter(definition => state[definition.key] !== undefined)
+    .map(definition => ({
+      ...definition,
+      active: !["0", "false", "off", ""].includes(String(state[definition.key]).toLowerCase())
+    }));
+
+  if (!sensors.length && !statuses.length) return null;
+
+  return <section className="panel equipment-panel">
+    <div className="panel-head"><div><h2>Equipment readings</h2></div></div>
+    <div className="equipment-grid">
+      {sensors.map(sensor => <article className="equipment-reading" key={sensor.key}><span>{sensor.label}</span><strong>{fixed(sensor.value)} <small>{sensor.unit}</small></strong></article>)}
+      {statuses.map(status => <article className="equipment-status" key={status.key}><i className={status.active ? "active" : ""} /><span>{status.label}</span><strong>{status.active ? "On" : "Off"}</strong></article>)}
+    </div>
+  </section>;
+}
+
+const toggleControls = [
+  { key: "SystemONOFF", label: "System" },
+  { key: "Eco", label: "Eco mode" },
+  { key: "AutoManual", label: "Automatic mode" },
+  { key: "Fan1", label: "Fan 1" },
+  { key: "Fan2", label: "Fan 2" },
+  { key: "Night", label: "Night mode" },
+  { key: "PumpONOFF", label: "Pump" },
+  { key: "TurboONOFF", label: "Turbo" }
+];
+
+function DeviceControls({
+  deviceId,
+  state
+}: {
+  deviceId: string;
+  state: Record<string, unknown>;
+}) {
+  const [pending, setPending] = useState("");
+  const [temperature, setTemperature] = useState(
+    String(numberFrom(state, "TempSet") ?? 22)
+  );
+  const [message, setMessage] = useState("");
+
+  async function send(key: string, value: string | number) {
+    setPending(key);
+    setMessage("");
+    try {
+      await api(`/devices/${deviceId}/command`, {
+        method: "POST",
+        body: JSON.stringify({
+          command: "set_parameter",
+          value: { key, value }
+        })
+      });
+      setMessage("Command sent");
+    } catch (commandError) {
+      setMessage(commandError instanceof Error ? commandError.message : "Command failed");
+    } finally {
+      setPending("");
+    }
+  }
+
+  return <section className="panel controls-panel">
+    <div className="panel-head"><div><h2>Device controls</h2></div>{message && <span className="control-message">{message}</span>}</div>
+    <div className="controls-grid">
+      <div className="setpoint-control"><span>Temperature setpoint</span><div><input type="number" step="0.1" value={temperature} onChange={event => setTemperature(event.target.value)} /><span>°C</span><button disabled={pending === "TempSet"} onClick={() => send("TempSet", Number(temperature))}>Set</button></div></div>
+      {toggleControls.map(control => {
+        const active = !["0", "false", "off", "", "undefined"].includes(String(state[control.key]).toLowerCase());
+        return <button className={`toggle-control ${active ? "active" : ""}`} disabled={pending === control.key} key={control.key} onClick={() => send(control.key, active ? "0" : "1")}><span>{control.label}</span><i><b /></i></button>;
+      })}
+    </div>
+  </section>;
+}
+
+function hasCoordinates(location: Device["location"]): location is NonNullable<Device["location"]> {
+  return Boolean(
+    location &&
+    Number.isFinite(location.latitude) &&
+    Number.isFinite(location.longitude)
+  );
+}
+
+function fixed(value: unknown, digits = 1): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(digits) : "—";
+}
+
+function DeviceDetail() {
+  const { deviceId = "" } = useParams();
+  const [device, setDevice] = useState<Device | null>(null);
+  const [telemetry, setTelemetry] = useState<TelemetryPoint[]>([]);
+  const [weather, setWeather] = useState<WeatherReading | null>(null);
+  const [location, setLocation] = useState({ latitude: 35.6892, longitude: 51.389, label: "" });
+  const [nameDraft, setNameDraft] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [showLocation, setShowLocation] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function loadWeather() {
+    try {
+      const response = await api<{ weather: WeatherReading }>(`/devices/${deviceId}/weather`);
+      setWeather(response.weather);
+    } catch (weatherError) {
+      setWeather(null);
+      if (weatherError instanceof Error && !weatherError.message.includes("Set the device location")) {
+        setError(weatherError.message);
+      }
+    }
+  }
+
+  useEffect(() => {
+    setError("");
+    Promise.all([
+      api<{ device: Device }>(`/devices/${deviceId}`),
+      api<{ telemetry: TelemetryPoint[] }>(`/devices/${deviceId}/telemetry?limit=100`)
+    ])
+      .then(([deviceResponse, telemetryResponse]) => {
+        setDevice(deviceResponse.device);
+        setNameDraft(deviceResponse.device.name);
+        setTelemetry(telemetryResponse.telemetry);
+        if (hasCoordinates(deviceResponse.device.location)) {
+          setLocation({
+            ...deviceResponse.device.location,
+            label: deviceResponse.device.location.label || ""
+          });
+          void loadWeather();
+        }
+      })
+      .catch(loadError => setError(loadError.message));
+  }, [deviceId]);
+
+  async function saveLocation() {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await api<{ device: Device }>(`/devices/${deviceId}/location`, {
+        method: "PATCH",
+        body: JSON.stringify(location)
+      });
+      setDevice(response.device);
+      await loadWeather();
+      setShowLocation(false);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save location");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveName() {
+    const name = nameDraft.trim();
+    if (!name || name === device?.name) return;
+    setRenaming(true);
+    setError("");
+    try {
+      const response = await api<{ device: Device }>(`/devices/${deviceId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name })
+      });
+      setDevice(current => current ? { ...current, name: response.device.name } : current);
+      setNameDraft(response.device.name);
+    } catch (renameError) {
+      setError(renameError instanceof Error ? renameError.message : "Could not rename device");
+    } finally {
+      setRenaming(false);
+    }
+  }
+
+  if (!device) {
+    return <main className="content"><div className="loading-text">Loading device history...</div>{error && <div className="error">{error}</div>}</main>;
+  }
+
+  const chartData = telemetry.map(point => ({
+    time: new Date(point.timestamp).toLocaleString([], {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
+    }),
+    temperature: numberFromAny(point.data, "RoomTemp", "temperature"),
+    humidity: numberFromAny(point.data, "Humidity", "humidity")
+  }));
+  const mapCenter: LatLngExpression = [location.latitude, location.longitude];
+
+  return <main className="content">
+    <div className="page-title">
+      <div><span className="eyebrow">DEVICE INSIGHT</span><div className="device-title-edit"><input value={nameDraft} onChange={event => setNameDraft(event.target.value)} maxLength={120} aria-label="Device name" /><button className="text-button" disabled={renaming || !nameDraft.trim() || nameDraft.trim() === device.name} onClick={saveName}>{renaming ? "Saving..." : "Save name"}</button></div><p>{device.typeName || device.typeId}</p></div>
+      <div className="page-actions"><button className="secondary-button" onClick={() => setShowLocation(true)}><MapPin size={16} /> {hasCoordinates(device.location) ? "Change location" : "Set location"}</button><NavLink className="secondary-link" to="/devices">Back to devices</NavLink></div>
+    </div>
+    {error && <div className="error">{error}</div>}
+
+    <section className="device-metrics">
+      <Stat icon={Thermometer} label="Device temperature" value={`${fixed(numberFromAny(device.state || {}, "RoomTemp", "temperature"))} °C`} note="Latest device reading" tone="orange" />
+      <Stat icon={Droplets} label="Device humidity" value={`${fixed(numberFromAny(device.state || {}, "Humidity", "humidity"))}%`} note="Latest device reading" tone="blue" />
+      <MotorSpeedGauge value={numberFromAny(device.state || {}, "MotorSpeed")} />
+      <Stat icon={Thermometer} label="Outdoor temperature" value={weather ? `${fixed(weather.temperature)} °C` : "—"} note={device.location?.label || "Set device location"} tone="green" />
+    </section>
+
+    <EquipmentReadings state={device.state || {}} />
+    <DeviceControls deviceId={deviceId} state={device.state || {}} />
+
+    <section className="panel chart-panel">
+      <div className="panel-head"><div><h2>Temperature and humidity history</h2><p>Previous device telemetry, oldest to newest</p></div></div>
+      {chartData.length ? <div className="telemetry-chart"><ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData} margin={{ top: 12, right: 20, left: 0, bottom: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e7edf3" />
+          <XAxis dataKey="time" tick={{ fontSize: 11 }} minTickGap={38} />
+          <YAxis yAxisId="temp" tick={{ fontSize: 11 }} unit="°" />
+          <YAxis yAxisId="humidity" orientation="right" domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
+          <Tooltip /><Legend />
+          <Line yAxisId="temp" type="monotone" dataKey="temperature" name="Temperature °C" stroke="#e67e32" strokeWidth={2} dot={false} connectNulls />
+          <Line yAxisId="humidity" type="monotone" dataKey="humidity" name="Humidity %" stroke="#168fb5" strokeWidth={2} dot={false} connectNulls />
+        </LineChart>
+      </ResponsiveContainer></div> : <Empty />}
+    </section>
+
+    <section className="panel weather-panel">
+      <div className="panel-head"><div><h2>Outdoor conditions</h2></div></div>
+      {weather ? <div className="weather-widget-grid">
+        <article className="weather-widget orange"><Thermometer /><span>Outdoor temperature</span><strong>{fixed(weather.temperature)} °C</strong></article>
+        <article className="weather-widget blue"><Droplets /><span>Outdoor humidity</span><strong>{weather.relativeHumidity}%</strong></article>
+        <article className="weather-widget"><Activity /><span>Dew point</span><strong>{fixed(weather.dewPoint)} °C</strong></article>
+      </div> : <div className="empty weather-empty"><MapPin /><strong>No outdoor conditions yet</strong><button className="primary-button compact" onClick={() => setShowLocation(true)}>Set location</button></div>}
+    </section>
+
+    {showLocation && <div className="modal-backdrop"><div className="modal location-modal">
+      <div className="modal-title"><div><h2>Device location</h2><p>Click the map to place this device.</p></div><button type="button" onClick={() => setShowLocation(false)}><X /></button></div>
+      <MapContainer key={`${location.latitude}-${location.longitude}`} center={mapCenter} zoom={12} scrollWheelZoom className="device-map">
+        <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <MapClick onSelect={(latitude, longitude) => setLocation(current => ({ ...current, latitude, longitude }))} />
+        <Marker position={mapCenter} icon={deviceMarker} />
+      </MapContainer>
+      <div className="location-form">
+        <label>Location label<input value={location.label} onChange={event => setLocation({ ...location, label: event.target.value })} placeholder="Roof plant room" /></label>
+        <div className="coordinates"><span>{fixed(location.latitude, 5)}</span><span>{fixed(location.longitude, 5)}</span></div>
+        <button className="primary-button compact" disabled={saving} onClick={saveLocation}>{saving ? "Saving..." : "Save location"}</button>
+      </div>
+    </div></div>}
   </main>;
 }
 
@@ -178,7 +607,7 @@ function UserAccess() {
     {error && <div className="error">{error}</div>}
     <section className="panel user-table">
       <div className="table-head"><span>User</span><span>Role</span><span>Status</span><span>Action</span></div>
-      {users.map(user => <div className="table-row" key={user.userId}><div className="user-cell"><span className="avatar">{user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.name}</strong><small>{user.email}</small></div></div><span className="role"><ShieldCheck size={15} /> {user.role}</span><span className={user.active ? "status online" : "status"}><i />{user.active ? "Active" : "Disabled"}</span><button className="text-button" onClick={() => toggle(user)}>{user.active ? "Disable" : "Enable"}</button></div>)}
+      {users.map(user => <div className="table-row" key={user.userId}><div className="user-cell"><span className="avatar">{user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.name}</strong><small>{user.email}{user.primaryAdmin ? " · Primary admin" : ""}</small></div></div><span className="role"><ShieldCheck size={15} /> {user.role}</span><span className={user.active ? "status online" : "status"}><i />{user.active ? "Active" : "Disabled"}</span><button className="text-button" disabled={user.primaryAdmin} title={user.primaryAdmin ? "The primary administrator cannot be disabled" : undefined} onClick={() => toggle(user)}>{user.primaryAdmin ? "Protected" : user.active ? "Disable" : "Enable"}</button></div>)}
     </section>
     {showForm && <NewUser onClose={() => setShowForm(false)} onCreated={() => { setShowForm(false); load(); }} />}
   </main>;

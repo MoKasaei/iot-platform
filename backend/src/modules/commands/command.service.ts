@@ -26,8 +26,19 @@ export async function sendDeviceCommand(
 
 
 
-    const topic =
-        `v1/organization/${organizationId}/device/${deviceId}/command`;
+    const isParameterCommand =
+        command.command === "set_parameter" &&
+        command.value &&
+        typeof command.value.key === "string";
+    const topic = isParameterCommand
+        ? `iotdashboard/devices/${deviceId}/commands`
+        : `v1/organization/${organizationId}/device/${deviceId}/command`;
+    const payload = isParameterCommand
+        ? { [command.value.key]: command.value.value }
+        : {
+            commandId: commandRecord._id.toString(),
+            ...command
+        };
 
 
 
@@ -62,14 +73,7 @@ export async function sendDeviceCommand(
 
         await publish(
             topic,
-            {
-
-                commandId:
-                    commandRecord._id.toString(),
-
-                ...command
-
-            }
+            payload
         );
 
 

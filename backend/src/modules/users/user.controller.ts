@@ -8,7 +8,14 @@ export async function listUsers(req: AuthRequest, res: Response) {
     const users = await User.find({ organizationId: req.user!.organizationId })
         .select("userId organizationId name email role active createdAt")
         .sort({ createdAt: -1 });
-    return res.json({ success: true, users });
+    const primaryEmail = process.env.ADMIN_EMAIL?.toLowerCase();
+    return res.json({
+        success: true,
+        users: users.map(user => ({
+            ...user.toObject(),
+            primaryAdmin: user.email.toLowerCase() === primaryEmail
+        }))
+    });
 }
 
 export async function createUser(req: AuthRequest, res: Response) {
@@ -48,6 +55,29 @@ export async function createUser(req: AuthRequest, res: Response) {
 export async function updateUser(req: AuthRequest, res: Response) {
     const { role, active, name } = req.body ?? {};
     const updates: Record<string, unknown> = {};
+    const target = await User.findOne({
+        userId: req.params.userId,
+        organizationId: req.user!.organizationId
+    }).select("email");
+
+    if (!target) {
+        return res.status(404).json({
+            success: false,
+            error: "User not found"
+        });
+    }
+
+    const isPrimaryAdmin =
+        target.email.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase();
+    if (
+        isPrimaryAdmin &&
+        ((role !== undefined && role !== "admin") || active === false)
+    ) {
+        return res.status(403).json({
+            success: false,
+            error: "The primary administrator cannot be disabled or demoted"
+        });
+    }
     if (role !== undefined) {
         if (!["admin", "user"].includes(role)) {
             return res.status(400).json({ success: false, error: "Invalid role" });
@@ -63,6 +93,8 @@ export async function updateUser(req: AuthRequest, res: Response) {
         { new: true }
     ).select("userId organizationId name email role active");
 
-    if (!user) return res.status(404).json({ success: false, error: "User not found" });
-    return res.json({ success: true, user });
+    return res.json({ success: true, user: {
+        ...user!.toObject(),
+        primaryAdmin: isPrimaryAdmin
+    } });
 }

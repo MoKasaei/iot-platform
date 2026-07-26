@@ -16,7 +16,10 @@ const connectedDevices =
 
 
 const mqttDeviceMap =
-    new Map<string,string>();
+    new Map<string, {
+        deviceId: string;
+        organizationId: string;
+    }>();
 
 
 const backendClients =
@@ -137,7 +140,10 @@ export async function createBroker():Promise<void>{
 
             mqttDeviceMap.set(
                 client.id,
-                result.deviceId
+                {
+                    deviceId: result.deviceId,
+                    organizationId: result.organizationId
+                }
             );
 
 
@@ -238,7 +244,7 @@ export async function createBroker():Promise<void>{
 
 
             const deviceId =
-                mqttDeviceMap.get(client.id)
+                mqttDeviceMap.get(client.id)?.deviceId
                 ||
                 client.id;
 
@@ -344,7 +350,7 @@ export async function createBroker():Promise<void>{
 
 
             const deviceId =
-                mqttDeviceMap.get(client.id)
+                mqttDeviceMap.get(client.id)?.deviceId
                 ||
                 client.id;
 
@@ -411,7 +417,7 @@ export async function createBroker():Promise<void>{
 
 
                     },
-                    10000
+                    env.offlineGraceMs
                 );
 
 
@@ -465,6 +471,11 @@ export async function createBroker():Promise<void>{
 
             const topic =
                 packet.topic;
+            const authenticatedDevice =
+                mqttDeviceMap.get(client.id);
+
+            if(!authenticatedDevice)
+                return;
 
 
 
@@ -480,16 +491,12 @@ export async function createBroker():Promise<void>{
                 try{
 
 
-                    const parts =
-                        topic.split("/");
-
-
                     const organizationId =
-                        parts[2];
+                        authenticatedDevice.organizationId;
 
 
                     const deviceId =
-                        parts[4];
+                        authenticatedDevice.deviceId;
 
 
                     const data =
@@ -558,16 +565,12 @@ export async function createBroker():Promise<void>{
                 try{
 
 
-                    const parts =
-                        topic.split("/");
-
-
                     const organizationId =
-                        parts[2];
+                        authenticatedDevice.organizationId;
 
 
                     const deviceId =
-                        parts[4];
+                        authenticatedDevice.deviceId;
 
 
 
