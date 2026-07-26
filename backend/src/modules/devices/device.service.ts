@@ -1,8 +1,20 @@
 import Device from "./device.model";
 import bcrypt from "bcrypt";
+import User from "../users/user.model";
 
 
 export async function seedDevices() {
+    const primaryAdmin = await User.findOne({
+        email: process.env.ADMIN_EMAIL?.toLowerCase()
+    });
+    if (!primaryAdmin) {
+        throw new Error("Primary administrator is required before devices are seeded");
+    }
+
+    await Device.updateMany(
+        { ownerUserId: { $exists: false } },
+        { $set: { ownerUserId: primaryAdmin.userId } }
+    );
     const exists = await Device.findOne({
         deviceId:"AHU001"
     });
@@ -35,6 +47,7 @@ export async function seedDevices() {
         deviceId:"AHU001",
 
         organizationId:"ORG001",
+        ownerUserId: primaryAdmin.userId,
 
         typeId:"AHU",
 

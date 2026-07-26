@@ -6,6 +6,9 @@ export interface IUser extends Document {
     userId: string;
     organizationId: string;
     name: string;
+    nickname?: string;
+    profilePhoto?: string;
+    deviceLimit: number;
     email: string;
     passwordHash: string;
     role: UserRole;
@@ -18,6 +21,9 @@ const UserSchema = new Schema<IUser>({
     userId: { type: String, required: true, unique: true, index: true },
     organizationId: { type: String, required: true, index: true },
     name: { type: String, required: true, trim: true },
+    nickname: { type: String, trim: true, maxlength: 80 },
+    profilePhoto: { type: String },
+    deviceLimit: { type: Number, default: 1, min: 0, max: 100 },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
     passwordHash: { type: String, required: true, select: false },
     role: { type: String, enum: ["admin", "user"], default: "user" },

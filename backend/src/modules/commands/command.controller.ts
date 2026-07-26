@@ -3,6 +3,7 @@ import { sendDeviceCommand } from "./command.service";
 import Command from "./command.model";
 import { AuthRequest } from "../../middleware/auth.middleware";
 import Device from "../devices/device.model";
+import { deviceAccessFilter } from "../devices/device.access";
 
 
 export async function sendCommand(
@@ -40,7 +41,7 @@ export async function sendCommand(
 
         const organizationId = req.user!.organizationId;
 
-        const deviceExists = await Device.exists({ deviceId, organizationId });
+        const deviceExists = await Device.exists(deviceAccessFilter(req, deviceId));
         if (!deviceExists) {
             return res.status(404).json({ success: false, error: "Device not found" });
         }

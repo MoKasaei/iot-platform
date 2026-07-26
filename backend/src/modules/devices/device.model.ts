@@ -6,6 +6,7 @@ export interface IDevice extends Document {
     deviceId: string;
 
     organizationId: string;
+    ownerUserId: string;
 
     typeId: string;
 
@@ -120,6 +121,11 @@ const DeviceSchema = new Schema<IDevice>(
     state:{
         type:Object,
         default:{}
+    },
+    ownerUserId: {
+        type: String,
+        required: true,
+        index: true
     },
 
     location: {
