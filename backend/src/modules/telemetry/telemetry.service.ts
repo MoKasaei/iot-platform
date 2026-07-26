@@ -26,7 +26,8 @@ export async function saveTelemetry(
         },
         {
             online:true,
-            lastSeen:new Date()
+            lastSeen:new Date(),
+            state:data
         }
     );
 }

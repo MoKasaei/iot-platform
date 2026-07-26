@@ -19,6 +19,11 @@ export interface IDevice extends Document {
 
     lastSeen?: Date;
 
+    state?: any;
+
+
+    lastCommand?: any;
+
 
     mqtt: {
 
@@ -103,6 +108,18 @@ const DeviceSchema = new Schema<IDevice>(
 
     lastSeen: {
         type: Date
+    },
+
+
+    state:{
+        type:Object,
+        default:{}
+    },
+
+
+    lastCommand:{
+        type:Object,
+        default:{}
     }
 
 },
