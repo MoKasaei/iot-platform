@@ -11,6 +11,7 @@ import deviceRoutes, {
 import commandRoutes from "./modules/commands/command.routes";
 import authRoutes from "./modules/auth/auth.routes";
 import userRoutes from "./modules/users/user.routes";
+import overviewRoutes from "./modules/overview/overview.routes";
 
 
 const app = express();
@@ -23,6 +24,7 @@ app.use(express.json({ limit: "400kb" }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/overview", overviewRoutes);
 
 
 app.use(

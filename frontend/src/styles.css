@@ -82,3 +82,20 @@
 .map-search-results button:hover{background:#f3f8fa}.map-search-results button:last-child{border:0}
 .map-search-results strong{font-size:.84rem}.map-search-results span{font-size:.72rem;color:var(--muted)}
 .theme-dark .map-search{border-color:#445166}.theme-dark .map-search-results,.theme-dark .map-search-results button{background:#1b2432;color:#eef4fa;border-color:#344154}.theme-dark .map-search-results button:hover{background:#273446}
+.system-metrics-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:17px;margin-bottom:18px}
+.system-metric{background:white;border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;align-items:center;box-shadow:0 5px 15px #1c344208}
+.metric-heading{width:100%;display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.8rem;font-weight:700}
+.ring-gauge{width:105px;height:105px;border-radius:50%;display:grid;place-items:center;margin:13px 0}
+.ring-gauge>div{width:77px;height:77px;border-radius:50%;background:white;display:grid;place-items:center}
+.ring-gauge strong{font:700 1.35rem "Manrope"}.system-metric>small{color:var(--muted);font-size:.72rem;text-align:center}
+.uptime-metric{align-items:flex-start}.uptime-metric>strong{font:700 1.65rem "Manrope";margin:auto 0 8px}.uptime-metric>small{text-align:left}
+.overview-totals{display:grid;grid-template-columns:repeat(3,1fr);gap:17px;margin-bottom:18px}
+.overview-totals article{background:white;border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:0 5px 15px #1c344208}
+.overview-totals span{font-size:.78rem;color:var(--muted)}.overview-totals strong{display:block;font:700 1.8rem "Manrope";margin:8px 0}
+.overview-totals small{display:block;color:var(--muted);font-size:.7rem;margin-top:8px}.danger-text{color:#c63d3d}
+.progress-bar{height:7px;background:#e7edf3;border-radius:10px;overflow:hidden}.progress-bar i{display:block;height:100%;background:#20a87c;border-radius:inherit}.progress-bar.blue i{background:#2789b5}.progress-bar.red i{background:#d65353}
+.overview-map{height:430px;width:100%;z-index:1}.overview-map-panel{margin-bottom:22px}
+.overview-map-marker{background:transparent;border:0}.overview-map-marker span{display:block;width:22px;height:22px;background:#25b886;border:4px solid white;border-radius:50%;box-shadow:0 2px 12px #07111f66}.overview-map-marker span.error{background:#df4545}
+.theme-dark{--ring-track:#445166}.theme-dark .system-metric,.theme-dark .overview-totals article,.theme-dark .ring-gauge>div{background:#1b2432;color:#eef4fa;border-color:#344154}.theme-dark .progress-bar{background:#344154}
+@media(max-width:1050px){.system-metrics-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.system-metrics-grid,.overview-totals{grid-template-columns:1fr}.overview-map{height:340px}}

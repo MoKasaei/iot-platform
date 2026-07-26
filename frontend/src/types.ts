@@ -40,6 +40,7 @@ export interface Device {
 export interface Organization {
   organizationId: string;
   name: string;
+  code?: string;
   logo?: string;
 }
 

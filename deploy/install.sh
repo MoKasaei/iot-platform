@@ -55,7 +55,8 @@ install_dir="$(prompt "Installation directory" "$DEFAULT_INSTALL_DIR")"
 server_name="$(prompt "Domain name or public IP" "_")"
 admin_email="$(prompt "Primary administrator email" "admin@example.com")"
 admin_name="$(prompt "Primary administrator name" "Platform Administrator")"
-organization_id="$(prompt "Organization ID" "ORG001")"
+organization_id="ORG_INTERNAL_${RANDOM}${RANDOM}"
+organization_code="$(prompt "Organization code" "ORG001")"
 organization_name="$(prompt "Organization name" "Default Organization")"
 organization_logo_path="$(prompt "Organization logo file path (optional)" "")"
 
@@ -120,6 +121,7 @@ ADMIN_PASSWORD=$(escape_env "$admin_password")
 ADMIN_NAME=$(escape_env "$admin_name")
 ADMIN_ORGANIZATION_ID=$(escape_env "$organization_id")
 ORGANIZATION_NAME=$(escape_env "$organization_name")
+ORGANIZATION_CODE=$(escape_env "$organization_code")
 ORGANIZATION_LOGO=$(escape_env "$organization_logo")
 MQTT_URL=mqtt://127.0.0.1:1883
 MQTT_BACKEND_USERNAME=backend

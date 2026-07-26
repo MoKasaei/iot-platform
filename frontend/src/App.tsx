@@ -1,12 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import {
-  Activity, Bell, Box, ChevronRight, Gauge, LayoutDashboard, LogOut,
+  Activity, Bell, Box, ChevronRight, Clock, Cpu, Gauge, HardDrive, LayoutDashboard, LogOut,
   Droplets, MapPin, Menu, Plus, Search, Settings, ShieldCheck,
   Thermometer, Trash2, Upload, Users, Wifi, WifiOff, X
 } from "lucide-react";
 import { divIcon, LatLngExpression } from "leaflet";
-import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
+import { MapContainer, Marker, TileLayer, Tooltip as MapTooltip, useMap, useMapEvents } from "react-leaflet";
 import {
   CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip,
   XAxis, YAxis
@@ -141,7 +141,7 @@ function Shell() {
       </div>
     </aside>
     <div className="workspace">
-      <header><button className="menu-button" onClick={() => setOpen(true)}><Menu /></button><div className="header-right"><span className="org-chip">{user.organizationId}</span><Bell size={20} /></div></header>
+      <header><button className="menu-button" onClick={() => setOpen(true)}><Menu /></button><div className="header-right"><span className="org-chip">{organization?.code || user.organizationId}</span><Bell size={20} /></div></header>
       <Routes>
         <Route path="/" element={<Overview />} />
         <Route path="/devices" element={<Devices />} />
@@ -197,11 +197,99 @@ function useDevices() {
   };
 }
 
+interface OverviewData {
+  system: {
+    cpu: { cores: number; usagePercent: number };
+    ram: { totalBytes: number; usedBytes: number };
+    storage: { totalBytes: number; usedBytes: number };
+    uptimeSeconds: number;
+  };
+  totals: {
+    devices: number; onlineDevices: number; errorDevices: number;
+    users: number; administrators: number;
+  };
+  devices: Array<{
+    deviceId: string; name: string; typeId: string; online: boolean; error: boolean;
+    latitude: number; longitude: number; label?: string;
+  }>;
+}
+
+function percent(used: number, total: number) {
+  return total > 0 ? Math.round(used / total * 100) : 0;
+}
+
+function gigabytes(bytes: number) {
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
+function uptimeLabel(seconds: number) {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${days}d ${hours}h ${minutes}m`;
+}
+
+function MetricGauge({ label, value, detail, icon: Icon }: { label: string; value: number; detail: string; icon: typeof Cpu }) {
+  const bounded = Math.max(0, Math.min(100, value));
+  return <article className="system-metric"><div className="metric-heading"><Icon size={18} /><span>{label}</span></div><div className="ring-gauge" style={{ background: `conic-gradient(var(--theme-accent) ${bounded}%, var(--ring-track, #e5ebf1) ${bounded}% 100%)` }}><div><strong>{bounded}%</strong></div></div><small>{detail}</small></article>;
+}
+
+function FitDeviceBounds({ devices }: { devices: OverviewData["devices"] }) {
+  const map = useMap();
+  useEffect(() => {
+    if (devices.length === 1) {
+      map.setView([devices[0].latitude, devices[0].longitude], 11);
+    } else if (devices.length > 1) {
+      map.fitBounds(devices.map(device => [device.latitude, device.longitude] as [number, number]), { padding: [35, 35] });
+    }
+  }, [devices, map]);
+  return null;
+}
+
+function AdminOverview({ name }: { name: string }) {
+  const [data, setData] = useState<OverviewData | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    const load = () => api<OverviewData>("/overview")
+      .then(response => { if (active) { setData(response); setError(""); } })
+      .catch(loadError => { if (active) setError(loadError.message); });
+    void load();
+    const interval = window.setInterval(load, 5000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, []);
+  const marker = (hasError: boolean) => divIcon({
+    className: "overview-map-marker",
+    html: `<span class="${hasError ? "error" : ""}"></span>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11]
+  });
+  const onlinePercent = data?.totals.devices ? Math.round(data.totals.onlineDevices / data.totals.devices * 100) : 0;
+  return <main className="content"><div className="page-title"><div><span className="eyebrow">SYSTEM OPERATIONS</span><h1>Good day, {name.split(" ")[0]}</h1><p>Live infrastructure and organization overview.</p></div><span className="live"><i /> Live</span></div>
+    {error && <div className="error">{error}</div>}
+    <section className="system-metrics-grid">
+      <MetricGauge icon={Cpu} label="CPU" value={data?.system.cpu.usagePercent || 0} detail={`${data?.system.cpu.cores || "—"} cores`} />
+      <MetricGauge icon={Activity} label="RAM" value={data ? percent(data.system.ram.usedBytes, data.system.ram.totalBytes) : 0} detail={data ? `${gigabytes(data.system.ram.usedBytes)} / ${gigabytes(data.system.ram.totalBytes)}` : "Loading"} />
+      <MetricGauge icon={HardDrive} label="Storage" value={data ? percent(data.system.storage.usedBytes, data.system.storage.totalBytes) : 0} detail={data ? `${gigabytes(data.system.storage.usedBytes)} / ${gigabytes(data.system.storage.totalBytes)}` : "Loading"} />
+      <article className="system-metric uptime-metric"><div className="metric-heading"><Clock size={18} /><span>Server uptime</span></div><strong>{data ? uptimeLabel(data.system.uptimeSeconds) : "—"}</strong><small>Since the last server restart</small></article>
+    </section>
+    <section className="overview-totals">
+      <article><span>Devices</span><strong>{data?.totals.devices ?? "—"}</strong><div className="progress-bar"><i style={{ width: `${onlinePercent}%` }} /></div><small>{data?.totals.onlineDevices ?? "—"} online · {onlinePercent}%</small></article>
+      <article><span>Users</span><strong>{data?.totals.users ?? "—"}</strong><div className="progress-bar blue"><i style={{ width: `${data?.totals.users ? Math.min(100, data.totals.administrators / data.totals.users * 100) : 0}%` }} /></div><small>{data?.totals.administrators ?? "—"} administrators</small></article>
+      <article><span>Device errors</span><strong className={data?.totals.errorDevices ? "danger-text" : ""}>{data?.totals.errorDevices ?? "—"}</strong><div className="progress-bar red"><i style={{ width: `${data?.totals.devices ? data.totals.errorDevices / data.totals.devices * 100 : 0}%` }} /></div><small>Reported error or alarm states</small></article>
+    </section>
+    <section className="panel overview-map-panel"><div className="panel-head"><div><h2>Device locations</h2><p>Green is normal; red indicates a reported error</p></div></div>
+      {data?.devices.length ? <MapContainer center={[36.1911, 44.0092]} zoom={4} scrollWheelZoom className="overview-map"><TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" /><FitDeviceBounds devices={data.devices} />{data.devices.map(device => <Marker key={device.deviceId} position={[device.latitude, device.longitude]} icon={marker(device.error)}><MapTooltip><strong>{device.name}</strong><br />{device.label || device.typeId}<br />{device.error ? "Error" : device.online ? "Online" : "Offline"}</MapTooltip></Marker>)}</MapContainer> : <div className="empty"><MapPin /><strong>No device locations</strong><span>Set device locations to display the organization map.</span></div>}
+    </section>
+  </main>;
+}
+
 function Overview() {
   const { user } = useAuth();
   const { devices, loading, error } = useDevices();
   const online = devices.filter(d => d.online).length;
   const latest = devices.slice(0, 5);
+  if (user?.role === "admin") return <AdminOverview name={user.name} />;
 
   return <main className="content">
     <div className="page-title"><div><span className="eyebrow">LIVE OPERATIONS</span><h1>Good day, {user!.name.split(" ")[0]}</h1><p>Here’s what’s happening across your connected environment.</p></div><span className="live"><i /> Live</span></div>
@@ -832,13 +920,13 @@ function OrganizationSettings() {
     try {
       const result = await api<{ organization: Organization }>("/organizations/current", {
         method: "PATCH",
-        body: JSON.stringify({ name: organization.name, logo: organization.logo || "" })
+        body: JSON.stringify({ name: organization.name, code: organization.code || "ORG001", logo: organization.logo || "" })
       });
       setOrganization(result.organization); setMessage("Organization branding updated");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not update organization"); }
   }
   if (!organization) return error ? <div className="error">{error}</div> : null;
-  return <section className="panel settings-panel"><form onSubmit={save}><h2>Organization branding</h2><div className="profile-photo"><span className="org-logo-preview">{organization.logo ? <img src={organization.logo} alt="" /> : <Activity />}</span><label className="secondary-button compact"><Upload size={16} /> Choose logo<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={e => chooseLogo(e.target.files?.[0])} hidden /></label>{organization.logo && <button type="button" className="text-button" onClick={() => setOrganization({ ...organization, logo: "" })}>Remove logo</button>}</div><label>Organization name<input value={organization.name} onChange={e => setOrganization({ ...organization, name: e.target.value })} maxLength={120} required /></label>{message && <div className="success">{message}</div>}{error && <div className="error">{error}</div>}<button className="primary-button compact">Save organization</button></form></section>;
+  return <section className="panel settings-panel"><form onSubmit={save}><h2>Organization branding</h2><div className="profile-photo"><span className="org-logo-preview">{organization.logo ? <img src={organization.logo} alt="" /> : <Activity />}</span><label className="secondary-button compact"><Upload size={16} /> Choose logo<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={e => chooseLogo(e.target.files?.[0])} hidden /></label>{organization.logo && <button type="button" className="text-button" onClick={() => setOrganization({ ...organization, logo: "" })}>Remove logo</button>}</div><label>Organization name<input value={organization.name} onChange={e => setOrganization({ ...organization, name: e.target.value })} maxLength={120} required /></label><label>Organization code<input value={organization.code || ""} onChange={e => setOrganization({ ...organization, code: e.target.value.toUpperCase() })} maxLength={40} pattern="[A-Za-z0-9][A-Za-z0-9_-]{1,39}" placeholder="ORG001" required /><small>This editable code is shown in the dashboard. Internal data references remain unchanged.</small></label>{message && <div className="success">{message}</div>}{error && <div className="error">{error}</div>}<button className="primary-button compact">Save organization</button></form></section>;
 }
 
 function ProfileSettings() {
