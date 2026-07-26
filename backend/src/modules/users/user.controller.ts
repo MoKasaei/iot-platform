@@ -99,13 +99,13 @@ export async function updateUser(req: AuthRequest, res: Response) {
         if (typeof nickname !== "string" || nickname.length > 80) {
             return res.status(400).json({ success: false, error: "Nickname must be 80 characters or less" });
         }
-        updates.nickname = nickname.trim() || undefined;
+        updates.nickname = nickname.trim() || null;
     }
     if (deviceLimit !== undefined) {
         if (!Number.isInteger(deviceLimit) || deviceLimit < 0 || deviceLimit > 100) {
             return res.status(400).json({ success: false, error: "Device limit must be between 0 and 100" });
         }
-        updates.deviceLimit = deviceLimit;
+        updates.deviceLimit = isPrimaryAdmin ? null : deviceLimit;
     }
 
     const user = await User.findOneAndUpdate(

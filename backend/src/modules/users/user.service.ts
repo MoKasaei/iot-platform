@@ -17,6 +17,7 @@ export async function seedAdmin() {
     if (existing) {
         existing.role = "admin";
         existing.active = true;
+        existing.deviceLimit = null;
         await existing.save();
         return;
     }
@@ -27,7 +28,8 @@ export async function seedAdmin() {
         name: process.env.ADMIN_NAME || "Platform Administrator",
         email,
         passwordHash: await bcrypt.hash(password, 12),
-        role: "admin"
+        role: "admin",
+        deviceLimit: null
     });
     console.log("Default admin created");
 }

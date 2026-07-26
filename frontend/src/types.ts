@@ -1,4 +1,5 @@
 export type Role = "admin" | "user";
+export type Theme = "default" | "dark" | "spring" | "summer" | "autumn" | "winter";
 
 export interface User {
   userId: string;
@@ -10,8 +11,9 @@ export interface User {
   primaryAdmin?: boolean;
   nickname?: string;
   profilePhoto?: string;
-  deviceLimit?: number;
+  deviceLimit?: number | null;
   deviceCount?: number;
+  theme?: Theme;
   createdAt?: string;
 }
 
@@ -33,6 +35,12 @@ export interface Device {
     longitude: number;
     label?: string;
   };
+}
+
+export interface Organization {
+  organizationId: string;
+  name: string;
+  logo?: string;
 }
 
 export interface DeviceType {

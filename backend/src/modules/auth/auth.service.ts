@@ -26,6 +26,7 @@ export async function authenticate(email: string, password: string) {
             nickname: user.nickname,
             profilePhoto: user.profilePhoto,
             deviceLimit: user.deviceLimit,
+            theme: user.theme,
             primaryAdmin: user.email.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase()
         }
     };

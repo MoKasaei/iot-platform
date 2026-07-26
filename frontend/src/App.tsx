@@ -14,7 +14,7 @@ import {
 import { api } from "./api";
 import { useAuth } from "./auth";
 import type {
-  Device, DeviceCredentials, DeviceType, Role, TelemetryPoint, User,
+  Device, DeviceCredentials, DeviceType, Organization, Role, TelemetryPoint, Theme, User,
   WeatherReading
 } from "./types";
 
@@ -101,6 +101,12 @@ function Register() {
 function Shell() {
   const { user, loading, logout } = useAuth();
   const [open, setOpen] = useState(false);
+  const [organization, setOrganization] = useState<Organization | null>(null);
+  useEffect(() => {
+    if (user) api<{ organization: Organization }>("/organizations/current")
+      .then(response => setOrganization(response.organization))
+      .catch(() => undefined);
+  }, [user?.organizationId]);
   if (loading) return <div className="page-loader"><Activity className="spin" /></div>;
   if (!user) return <Navigate to="/login" replace />;
 
@@ -112,10 +118,10 @@ function Shell() {
     { to: "/settings", label: "Settings", icon: Settings }
   ];
 
-  return <div className="app-shell">
+  return <div className={`app-shell theme-${user.theme || "default"}`}>
     <aside className={open ? "sidebar open" : "sidebar"}>
       <button className="close-menu" onClick={() => setOpen(false)}><X /></button>
-      <div className="logo"><span><Activity size={20} /></span> IoT Platform</div>
+      <div className="logo"><span>{organization?.logo ? <img src={organization.logo} alt="" /> : <Activity size={20} />}</span> {organization?.name || "IoT Platform"}</div>
       <nav>{links.map(({ to, label, icon: Icon, end }) =>
         <NavLink key={to} to={to} end={end} onClick={() => setOpen(false)}>
           <Icon size={19} /> {label}
@@ -128,7 +134,7 @@ function Shell() {
       </div>
     </aside>
     <div className="workspace">
-      <header><button className="menu-button" onClick={() => setOpen(true)}><Menu /></button><div className="search"><Search size={17} /><span>Search devices…</span></div><div className="header-right"><span className="org-chip">{user.organizationId}</span><Bell size={20} /></div></header>
+      <header><button className="menu-button" onClick={() => setOpen(true)}><Menu /></button><div className="header-right"><span className="org-chip">{user.organizationId}</span><Bell size={20} /></div></header>
       <Routes>
         <Route path="/" element={<Overview />} />
         <Route path="/devices" element={<Devices />} />
@@ -309,7 +315,7 @@ function NewDevice({
       <div className="modal-title"><div><h2>Add a device</h2><p>Create a device and generate its MQTT credentials.</p></div><button type="button" onClick={onClose}><X /></button></div>
       <label>Device ID<input value={form.deviceId} onChange={event => setForm({ ...form, deviceId: event.target.value.toUpperCase() })} placeholder="AHU-LOBBY-01" pattern="[A-Za-z0-9][A-Za-z0-9_-]{2,63}" required /><small>Use the unique ID configured in the physical device.</small></label>
       <label>Device name<input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Lobby air handler" maxLength={120} required /></label>
-      {user?.role === "admin" && <label>Owner<select value={form.ownerUserId} onChange={event => setForm({ ...form, ownerUserId: event.target.value })}><option value="">Unassigned</option>{users.map(owner => <option key={owner.userId} value={owner.userId}>{owner.nickname || owner.name} ({owner.deviceCount || 0}/{owner.deviceLimit ?? 1})</option>)}</select></label>}
+      {user?.role === "admin" && <label>Owner<select value={form.ownerUserId} onChange={event => setForm({ ...form, ownerUserId: event.target.value })}><option value="">Unassigned</option>{users.map(owner => <option key={owner.userId} value={owner.userId}>{owner.nickname || owner.name} ({owner.deviceCount || 0}/{owner.deviceLimit === null ? "Unlimited" : owner.deviceLimit ?? 1})</option>)}</select></label>}
       <label>Device type<select value={form.typeId} onChange={event => setForm({ ...form, typeId: event.target.value })} required>{types.map(type => <option key={type.typeId} value={type.typeId}>{type.name}</option>)}</select></label>
       <label>Hardware (optional)<input value={form.hardware} onChange={event => setForm({ ...form, hardware: event.target.value })} placeholder="ESP32" /></label>
       <label>Firmware version (optional)<input value={form.firmwareVersion} onChange={event => setForm({ ...form, firmwareVersion: event.target.value })} placeholder="1.0.0" /></label>
@@ -705,7 +711,7 @@ function UserAccess() {
     {error && <div className="error">{error}</div>}
     <section className="panel user-table">
       <div className="table-head"><span>User</span><span>Devices</span><span>Status</span><span>Actions</span></div>
-      {users.map(user => <div className="table-row" key={user.userId}><div className="user-cell"><span className="avatar">{user.profilePhoto ? <img src={user.profilePhoto} alt="" /> : user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.nickname || user.name}</strong><small>{user.nickname ? `${user.name} · ` : ""}{user.email}{user.primaryAdmin ? " · Primary admin" : ""}</small></div></div><span className="role"><ShieldCheck size={15} /> {user.deviceCount || 0} / {user.deviceLimit ?? 1}</span><span className={user.active ? "status online" : "status"}><i />{user.active ? "Active" : "Disabled"}</span><div className="row-actions"><button className="text-button" onClick={() => setEditingUser(user)}>Edit</button><button className="text-button" disabled={user.primaryAdmin} onClick={() => toggle(user)}>{user.primaryAdmin ? "Protected" : user.active ? "Disable" : "Enable"}</button><button className="icon-danger" disabled={user.primaryAdmin} onClick={() => remove(user)} title="Permanently delete"><Trash2 size={16} /></button></div></div>)}
+      {users.map(user => <div className="table-row" key={user.userId}><div className="user-cell"><span className="avatar">{user.profilePhoto ? <img src={user.profilePhoto} alt="" /> : user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.nickname || user.name}</strong><small>{user.nickname ? `${user.name} · ` : ""}{user.email}{user.primaryAdmin ? " · Primary admin" : ""}</small></div></div><span className="role"><ShieldCheck size={15} /> {user.deviceCount || 0} / {user.deviceLimit === null ? "Unlimited" : user.deviceLimit ?? 1}</span><span className={user.active ? "status online" : "status"}><i />{user.active ? "Active" : "Disabled"}</span><div className="row-actions"><button className="text-button" onClick={() => setEditingUser(user)}>Edit</button><button className="text-button" disabled={user.primaryAdmin} onClick={() => toggle(user)}>{user.primaryAdmin ? "Protected" : user.active ? "Disable" : "Enable"}</button><button className="icon-danger" disabled={user.primaryAdmin} onClick={() => remove(user)} title="Permanently delete"><Trash2 size={16} /></button></div></div>)}
     </section>
     {showForm && <NewUser onClose={() => setShowForm(false)} onCreated={() => { setShowForm(false); load(); }} />}
     {editingUser && <EditUser user={editingUser} onClose={() => setEditingUser(null)} onSaved={() => { setEditingUser(null); load(); }} />}
@@ -725,7 +731,7 @@ function EditUser({ user, onClose, onSaved }: { user: User; onClose: () => void;
   }
   return <div className="modal-backdrop"><form className="modal" onSubmit={submit}><div className="modal-title"><div><h2>Manage user</h2><p>{user.name} · {user.email}</p></div><button type="button" onClick={onClose}><X /></button></div>
     <label>Admin nickname<input value={form.nickname} onChange={e => setForm({ ...form, nickname: e.target.value })} maxLength={80} placeholder="Optional internal label" /></label>
-    <label>Device allowance<input type="number" min={0} max={100} value={form.deviceLimit} onChange={e => setForm({ ...form, deviceLimit: Number(e.target.value) })} /></label>
+    <label>Device allowance{user.primaryAdmin ? <input value="Unlimited" disabled /> : <input type="number" min={0} max={100} value={form.deviceLimit} onChange={e => setForm({ ...form, deviceLimit: Number(e.target.value) })} />}</label>
     <label>Access level<select disabled={user.primaryAdmin} value={form.role} onChange={e => setForm({ ...form, role: e.target.value as Role })}><option value="user">User</option><option value="admin">Administrator</option></select></label>
     <label className="checkbox-row"><input type="checkbox" disabled={user.primaryAdmin} checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} /> Account active</label>
     {error && <div className="error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button compact" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></div>
@@ -751,13 +757,46 @@ function NewUser({ onClose, onCreated }: { onClose: () => void; onCreated: () =>
   </form></div>;
 }
 
+function OrganizationSettings() {
+  const [organization, setOrganization] = useState<Organization | null>(null);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api<{ organization: Organization }>("/organizations/current")
+      .then(response => setOrganization(response.organization))
+      .catch(e => setError(e.message));
+  }, []);
+  function chooseLogo(file?: File) {
+    if (!file || !organization) return;
+    if (file.size > 250_000) { setError("Choose a logo smaller than 250 KB"); return; }
+    const reader = new FileReader();
+    reader.onload = () => setOrganization({ ...organization, logo: String(reader.result) });
+    reader.readAsDataURL(file);
+  }
+  async function save(event: FormEvent) {
+    event.preventDefault(); if (!organization) return; setError(""); setMessage("");
+    try {
+      const result = await api<{ organization: Organization }>("/organizations/current", {
+        method: "PATCH",
+        body: JSON.stringify({ name: organization.name, logo: organization.logo || "" })
+      });
+      setOrganization(result.organization); setMessage("Organization branding updated");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not update organization"); }
+  }
+  if (!organization) return error ? <div className="error">{error}</div> : null;
+  return <section className="panel settings-panel"><form onSubmit={save}><h2>Organization branding</h2><div className="profile-photo"><span className="org-logo-preview">{organization.logo ? <img src={organization.logo} alt="" /> : <Activity />}</span><label className="secondary-button compact"><Upload size={16} /> Choose logo<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={e => chooseLogo(e.target.files?.[0])} hidden /></label>{organization.logo && <button type="button" className="text-button" onClick={() => setOrganization({ ...organization, logo: "" })}>Remove logo</button>}</div><label>Organization name<input value={organization.name} onChange={e => setOrganization({ ...organization, name: e.target.value })} maxLength={120} required /></label>{message && <div className="success">{message}</div>}{error && <div className="error">{error}</div>}<button className="primary-button compact">Save organization</button></form></section>;
+}
+
 function ProfileSettings() {
   const { user, logout, setCurrentUser } = useAuth();
   const [name, setName] = useState(user?.name || "");
   const [profilePhoto, setProfilePhoto] = useState(user?.profilePhoto || "");
+  const [theme, setTheme] = useState<Theme>(user?.theme || "default");
   const [confirmation, setConfirmation] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [passwords, setPasswords] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [passwordMessage, setPasswordMessage] = useState("");
   if (!user) return null;
   function choosePhoto(file?: File) {
     if (!file) return;
@@ -769,7 +808,7 @@ function ProfileSettings() {
   async function save(event: FormEvent) {
     event.preventDefault(); setError(""); setMessage("");
     try {
-      const result = await api<{ user: User }>("/auth/me", { method: "PATCH", body: JSON.stringify({ name, profilePhoto }) });
+      const result = await api<{ user: User }>("/auth/me", { method: "PATCH", body: JSON.stringify({ name, profilePhoto, theme }) });
       setCurrentUser(result.user); setMessage("Profile updated");
     } catch (e) { setError(e instanceof Error ? e.message : "Update failed"); }
   }
@@ -781,8 +820,24 @@ function ProfileSettings() {
       logout();
     } catch (e) { setError(e instanceof Error ? e.message : "Deletion failed"); }
   }
+  async function savePassword(event: FormEvent) {
+    event.preventDefault(); setError(""); setPasswordMessage("");
+    if (passwords.newPassword !== passwords.confirmPassword) {
+      setError("New passwords do not match"); return;
+    }
+    try {
+      await api("/auth/password", {
+        method: "PATCH",
+        body: JSON.stringify({ currentPassword: passwords.currentPassword, newPassword: passwords.newPassword })
+      });
+      setPasswords({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      setPasswordMessage("Password changed");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not change password"); }
+  }
   return <main className="content"><div className="page-title"><div><span className="eyebrow">YOUR ACCOUNT</span><h1>Profile settings</h1><p>Update the identity shown in your panel.</p></div></div>
-    <section className="panel settings-panel"><form onSubmit={save}><div className="profile-photo"><span className="avatar large">{profilePhoto ? <img src={profilePhoto} alt="" /> : name.slice(0, 2).toUpperCase()}</span><label className="secondary-button compact"><Upload size={16} /> Choose photo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => choosePhoto(e.target.files?.[0])} hidden /></label></div><label>Display name<input value={name} onChange={e => setName(e.target.value)} maxLength={120} required /></label>{message && <div className="success">{message}</div>}{error && <div className="error">{error}</div>}<button className="primary-button compact">Save profile</button></form></section>
+    <section className="panel settings-panel"><form onSubmit={save}><div className="profile-photo"><span className="avatar large">{profilePhoto ? <img src={profilePhoto} alt="" /> : name.slice(0, 2).toUpperCase()}</span><label className="secondary-button compact"><Upload size={16} /> Choose photo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => choosePhoto(e.target.files?.[0])} hidden /></label></div><label>Display name<input value={name} onChange={e => setName(e.target.value)} maxLength={120} required /></label><label>Account theme<select value={theme} onChange={e => setTheme(e.target.value as Theme)}><option value="default">Default white</option><option value="dark">Night</option><option value="spring">Spring</option><option value="summer">Summer</option><option value="autumn">Autumn</option><option value="winter">Winter</option></select></label>{message && <div className="success">{message}</div>}{error && <div className="error">{error}</div>}<button className="primary-button compact">Save profile</button></form></section>
+    {user.role === "admin" && <OrganizationSettings />}
+    <section className="panel settings-panel"><form onSubmit={savePassword}><h2>Change password</h2><label>Current password<input type="password" autoComplete="current-password" value={passwords.currentPassword} onChange={e => setPasswords({ ...passwords, currentPassword: e.target.value })} required /></label><label>New password<input type="password" autoComplete="new-password" minLength={8} value={passwords.newPassword} onChange={e => setPasswords({ ...passwords, newPassword: e.target.value })} required /></label><label>Confirm new password<input type="password" autoComplete="new-password" minLength={8} value={passwords.confirmPassword} onChange={e => setPasswords({ ...passwords, confirmPassword: e.target.value })} required /></label>{passwordMessage && <div className="success">{passwordMessage}</div>}<button className="primary-button compact">Change password</button></form></section>
     {!user.primaryAdmin && <section className="panel danger-zone"><h2>Delete account</h2><p>This permanently removes your account, devices, telemetry, and command history. It cannot be recovered.</p><label>Type DELETE MY ACCOUNT<input value={confirmation} onChange={e => setConfirmation(e.target.value)} /></label><button className="danger-button" disabled={confirmation !== "DELETE MY ACCOUNT"} onClick={removeAccount}><Trash2 size={16} /> Permanently delete account</button></section>}
   </main>;
 }

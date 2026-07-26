@@ -50,7 +50,7 @@ export async function login(req: Request, res: Response) {
 
 export async function me(req: AuthRequest, res: Response) {
     const user = await User.findOne({ userId: req.user!.userId })
-        .select("userId organizationId name email role active nickname profilePhoto deviceLimit");
+        .select("userId organizationId name email role active nickname profilePhoto deviceLimit theme");
 
     if (!user?.active) {
         return res.status(401).json({ success: false, error: "User is inactive" });
@@ -124,14 +124,16 @@ export async function register(req: Request, res: Response) {
 
 export async function updateMe(req: AuthRequest, res: Response) {
     const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
-    if (!name || name.length > 120 || !validPhoto(req.body.profilePhoto)) {
+    const theme = req.body.theme;
+    if (!name || name.length > 120 || !validPhoto(req.body.profilePhoto) ||
+        (theme !== undefined && !["default", "dark", "spring", "summer", "autumn", "winter"].includes(theme))) {
         return res.status(400).json({ success: false, error: "Enter a valid name and PNG, JPEG, or WebP photo under 250 KB" });
     }
     const user = await User.findOneAndUpdate(
         { userId: req.user!.userId },
-        { $set: { name, profilePhoto: req.body.profilePhoto || undefined } },
+        { $set: { name, profilePhoto: req.body.profilePhoto || null, ...(theme ? { theme } : {}) } },
         { new: true }
-    ).select("userId organizationId name email role active nickname profilePhoto deviceLimit");
+    ).select("userId organizationId name email role active nickname profilePhoto deviceLimit theme");
     if (!user) {
         return res.status(404).json({ success: false, error: "User not found" });
     }
@@ -142,6 +144,23 @@ export async function updateMe(req: AuthRequest, res: Response) {
             primaryAdmin: user.email.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase()
         }
     });
+}
+
+export async function changePassword(req: AuthRequest, res: Response) {
+    const { currentPassword, newPassword } = req.body ?? {};
+    if (typeof currentPassword !== "string" || typeof newPassword !== "string" || newPassword.length < 8) {
+        return res.status(400).json({ success: false, error: "Current password and a new password of at least 8 characters are required" });
+    }
+    if (currentPassword === newPassword) {
+        return res.status(400).json({ success: false, error: "Choose a password different from your current password" });
+    }
+    const user = await User.findOne({ userId: req.user!.userId, active: true }).select("+passwordHash");
+    if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
+        return res.status(400).json({ success: false, error: "Current password is incorrect" });
+    }
+    user.passwordHash = await bcrypt.hash(newPassword, 12);
+    await user.save();
+    return res.json({ success: true });
 }
 
 export async function deleteMe(req: AuthRequest, res: Response) {

@@ -228,7 +228,7 @@ export async function createDevice(
         });
         if (!owner) return res.status(400).json({ success: false, error: "Select a valid active owner" });
         const ownedCount = await Device.countDocuments({ ownerUserId, organizationId: req.user!.organizationId });
-        if (ownedCount >= owner.deviceLimit) {
+        if (owner.deviceLimit !== null && ownedCount >= owner.deviceLimit) {
             return res.status(409).json({ success: false, error: `This account has reached its ${owner.deviceLimit}-device limit` });
         }
     }
@@ -308,7 +308,7 @@ export async function renameDevice(
                 organizationId: req.user!.organizationId,
                 deviceId: { $ne: String(req.params.deviceId) }
             });
-            if (ownedCount >= owner.deviceLimit) {
+            if (owner.deviceLimit !== null && ownedCount >= owner.deviceLimit) {
                 return res.status(409).json({ success: false, error: `This account has reached its ${owner.deviceLimit}-device limit` });
             }
             updates.ownerUserId = ownerUserId;
