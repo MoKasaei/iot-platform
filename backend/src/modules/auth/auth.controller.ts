@@ -136,10 +136,20 @@ export async function updateMe(req: AuthRequest, res: Response) {
     const email = normalizeEmail(req.body.email);
     const phone = normalizePhone(req.body.phone);
     const muteAlarmNotifications = req.body.muteAlarmNotifications;
-    if (!name || name.length > 120 || !validPhoto(req.body.profilePhoto) ||
-        (!email && !phone) || (email && !validEmail(email)) || (phone && !validPhone(phone)) ||
-        (theme !== undefined && !["default", "dark", "spring", "summer", "autumn", "winter"].includes(theme))) {
-        return res.status(400).json({ success: false, error: "Enter a valid name and PNG, JPEG, or WebP photo under 250 KB" });
+    if (!name || name.length > 120) {
+        return res.status(400).json({ success: false, error: "Enter a valid name of 120 characters or fewer" });
+    }
+    if (!email && !phone) {
+        return res.status(400).json({ success: false, error: "Enter an email address or phone number" });
+    }
+    if ((email && !validEmail(email)) || (phone && !validPhone(phone))) {
+        return res.status(400).json({ success: false, error: "Enter a valid email address or phone number" });
+    }
+    if (!validPhoto(req.body.profilePhoto)) {
+        return res.status(400).json({ success: false, error: "Use a PNG, JPEG, or WebP profile photo under 250 KB" });
+    }
+    if (theme !== undefined && !["default", "dark", "spring", "summer", "autumn", "winter"].includes(theme)) {
+        return res.status(400).json({ success: false, error: "Select a valid account theme" });
     }
     const current = await User.findOne({ userId: req.user!.userId }).select("email role");
     if (!current) return res.status(404).json({ success: false, error: "User not found" });

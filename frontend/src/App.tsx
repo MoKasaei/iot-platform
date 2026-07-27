@@ -145,6 +145,16 @@ function Shell() {
       .then(response => setOrganization(response.organization))
       .catch(() => undefined);
   }, [user?.organizationId]);
+  useEffect(() => {
+    if (!showNotifications) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!(event.target as Element).closest?.(".notification-wrap")) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, [showNotifications]);
   if (loading) return <div className="page-loader"><Activity className="spin" /></div>;
   if (!user) return <Navigate to="/login" replace />;
 
