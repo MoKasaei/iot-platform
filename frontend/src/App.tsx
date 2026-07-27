@@ -146,6 +146,13 @@ function Shell() {
       .catch(() => undefined);
   }, [user?.organizationId]);
   useEffect(() => {
+    const sizes = { standard: "16px", large: "17px", "extra-large": "18px" };
+    document.documentElement.style.fontSize = sizes[user?.fontSize || "large"];
+    return () => {
+      document.documentElement.style.fontSize = "16px";
+    };
+  }, [user?.fontSize]);
+  useEffect(() => {
     if (!showNotifications) return;
     const closeOnOutsideClick = (event: PointerEvent) => {
       if (!(event.target as Element).closest?.(".notification-wrap")) {
@@ -169,7 +176,7 @@ function Shell() {
   return <div className={`app-shell theme-${user.theme || "default"} font-${user.fontSize || "large"}`}>
     <aside className={open ? "sidebar open" : "sidebar"}>
       <button className="close-menu" onClick={() => setOpen(false)}><X /></button>
-      <div className="logo"><span>{organization?.logo ? <img src={organization.logo} alt="" /> : <Activity size={20} />}</span><div className="org-copy"><strong>{organization?.name || "IoT Platform"}</strong><small>Erbil ({organization?.code || user.organizationId})</small></div></div>
+      <div className="logo"><span>{organization?.logo ? <img src={organization.logo} alt="" /> : <Activity size={20} />}</span><div className="org-copy"><strong>{organization?.name || "IoT Platform"}</strong><small>Erbil ({user.organizationId})</small></div></div>
       <nav>{links.map(({ to, label, icon: Icon, end }) =>
         <NavLink key={to} to={to} end={end} onClick={() => setOpen(false)}>
           <Icon size={19} /> {label}
