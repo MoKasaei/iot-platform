@@ -146,6 +146,13 @@ function Shell() {
       .catch(() => undefined);
   }, [user?.organizationId]);
   useEffect(() => {
+    const sizes = { standard: "16px", large: "18px", "extra-large": "20px" };
+    document.documentElement.style.fontSize = sizes[user?.fontSize || "large"];
+    return () => {
+      document.documentElement.style.fontSize = "16px";
+    };
+  }, [user?.fontSize]);
+  useEffect(() => {
     if (!showNotifications) return;
     const closeOnOutsideClick = (event: PointerEvent) => {
       if (!(event.target as Element).closest?.(".notification-wrap")) {
@@ -166,10 +173,10 @@ function Shell() {
     { to: "/settings", label: "Settings", icon: Settings }
   ];
 
-  return <div className={`app-shell theme-${user.theme || "default"}`}>
+  return <div className={`app-shell theme-${user.theme || "default"} font-${user.fontSize || "large"}`}>
     <aside className={open ? "sidebar open" : "sidebar"}>
       <button className="close-menu" onClick={() => setOpen(false)}><X /></button>
-      <div className="logo"><span>{organization?.logo ? <img src={organization.logo} alt="" /> : <Activity size={20} />}</span> {organization?.name || "IoT Platform"}</div>
+      <div className="logo"><span>{organization?.logo ? <img src={organization.logo} alt="" /> : <Activity size={20} />}</span><div className="org-copy"><strong>{organization?.name || "IoT Platform"}</strong><small>{organization?.code || user.organizationId}</small></div></div>
       <nav>{links.map(({ to, label, icon: Icon, end }) =>
         <NavLink key={to} to={to} end={end} onClick={() => setOpen(false)}>
           <Icon size={19} /> {label}
@@ -189,7 +196,7 @@ function Shell() {
         <Route path="/devices/:deviceId" element={<DeviceDetail />} />
         <Route path="/users" element={user.role === "admin" ? <UserAccess /> : <Navigate to="/" />} />
         <Route path="/alerts" element={<AlarmCenter />} />
-        <Route path="/settings" element={<ProfileSettings />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </div>
@@ -1017,11 +1024,73 @@ function OrganizationSettings() {
   return <section className="panel settings-panel"><form onSubmit={save}><h2>Organization branding</h2><div className="profile-photo"><span className="org-logo-preview">{organization.logo ? <img src={organization.logo} alt="" /> : <Activity />}</span><label className="secondary-button compact"><Upload size={16} /> Choose logo<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={e => chooseLogo(e.target.files?.[0])} hidden /></label>{organization.logo && <button type="button" className="text-button" onClick={() => setOrganization({ ...organization, logo: "" })}>Remove logo</button>}</div><label>Organization name<input value={organization.name} onChange={e => setOrganization({ ...organization, name: e.target.value })} maxLength={120} required /></label><label>Organization code<input value={organization.code || ""} onChange={e => setOrganization({ ...organization, code: e.target.value.toUpperCase() })} maxLength={40} pattern="[A-Za-z0-9][A-Za-z0-9_-]{1,39}" placeholder="ORG001" required /><small>This editable code is shown in the dashboard. Internal data references remain unchanged.</small></label>{message && <div className="success">{message}</div>}{error && <div className="error">{error}</div>}<button className="primary-button compact">Save organization</button></form></section>;
 }
 
+function SettingsPage() {
+  const { user, logout, setCurrentUser } = useAuth();
+  const [tab, setTab] = useState<"profile" | "appearance" | "security" | "organization" | "danger">("profile");
+  const [profile, setProfile] = useState({
+    name: user?.name || "", email: user?.email || "", phone: user?.phone || "",
+    profilePhoto: user?.profilePhoto || "", theme: user?.theme || "default" as Theme,
+    fontSize: user?.fontSize || "large", muteAlarmNotifications: Boolean(user?.muteAlarmNotifications)
+  });
+  const [passwords, setPasswords] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [confirmation, setConfirmation] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  if (!user) return null;
+
+  function choosePhoto(file?: File) {
+    if (!file) return;
+    if (file.size > 250_000) { setError("Choose an image smaller than 250 KB"); return; }
+    const reader = new FileReader();
+    reader.onload = () => setProfile(current => ({ ...current, profilePhoto: String(reader.result) }));
+    reader.readAsDataURL(file);
+  }
+  async function saveProfile(event: FormEvent) {
+    event.preventDefault(); setError(""); setMessage("");
+    try {
+      const result = await api<{ user: User }>("/auth/me", { method: "PATCH", body: JSON.stringify(profile) });
+      setCurrentUser(result.user); setMessage("Settings saved");
+    } catch (saveError) { setError(saveError instanceof Error ? saveError.message : "Could not save settings"); }
+  }
+  async function savePassword(event: FormEvent) {
+    event.preventDefault(); setError(""); setMessage("");
+    if (passwords.newPassword !== passwords.confirmPassword) { setError("New passwords do not match"); return; }
+    try {
+      await api("/auth/password", { method: "PATCH", body: JSON.stringify(passwords) });
+      setPasswords({ currentPassword: "", newPassword: "", confirmPassword: "" }); setMessage("Password changed");
+    } catch (saveError) { setError(saveError instanceof Error ? saveError.message : "Could not change password"); }
+  }
+  async function removeAccount() {
+    if (confirmation !== "DELETE MY ACCOUNT") return;
+    try {
+      await api("/auth/me", { method: "DELETE", body: JSON.stringify({ confirmation }) }); logout();
+    } catch (removeError) { setError(removeError instanceof Error ? removeError.message : "Deletion failed"); }
+  }
+  const tabs = [
+    ["profile", "Profile"], ["appearance", "Appearance"], ["security", "Security"],
+    ...(user.role === "admin" ? [["organization", "Organization"]] : []),
+    ...(!user.primaryAdmin ? [["danger", "Delete account"]] : [])
+  ] as Array<[typeof tab, string]>;
+  const feedback = <>{message && <div className="success">{message}</div>}{error && <div className="error">{error}</div>}</>;
+
+  return <main className="content settings-page">
+    <div className="page-title"><div><span className="eyebrow">YOUR ACCOUNT</span><h1>Settings</h1><p>Manage your profile, appearance, and security.</p></div></div>
+    <nav className="settings-tabs">{tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => { setTab(id); setError(""); setMessage(""); }}>{label}</button>)}</nav>
+    {tab === "profile" && <section className="panel settings-panel"><form onSubmit={saveProfile}><h2>Profile and contact</h2><div className="profile-photo"><span className="avatar large">{profile.profilePhoto ? <img src={profile.profilePhoto} alt="" /> : profile.name.slice(0, 2).toUpperCase()}</span><label className="secondary-button compact"><Upload size={16} /> Choose photo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => choosePhoto(event.target.files?.[0])} hidden /></label></div><label>Display name<input value={profile.name} onChange={event => setProfile({ ...profile, name: event.target.value })} maxLength={120} required /></label><label>Email address<input type="email" disabled={user.primaryAdmin} value={profile.email} onChange={event => setProfile({ ...profile, email: event.target.value })} /><small>{user.primaryAdmin ? "The primary administrator email is controlled by the server environment." : "Keep an email or phone number on the account."}</small></label><label>Phone number<input type="tel" value={profile.phone} onChange={event => setProfile({ ...profile, phone: event.target.value })} placeholder="+964…" /></label>{feedback}<button className="primary-button compact">Save profile</button></form></section>}
+    {tab === "appearance" && <section className="panel settings-panel"><form onSubmit={saveProfile}><h2>Appearance</h2><p className="settings-description">These choices apply only to your account.</p><label>Theme<select value={profile.theme} onChange={event => setProfile({ ...profile, theme: event.target.value as Theme })}><option value="default">Default white</option><option value="dark">Night</option><option value="spring">Spring</option><option value="summer">Summer</option><option value="autumn">Autumn</option><option value="winter">Winter</option></select></label><label>Font size<select value={profile.fontSize} onChange={event => setProfile({ ...profile, fontSize: event.target.value as User["fontSize"] || "large" })}><option value="standard">Standard</option><option value="large">Large (recommended)</option><option value="extra-large">Extra large</option></select></label>{user.role === "admin" && <label className="checkbox-row"><input type="checkbox" checked={profile.muteAlarmNotifications} onChange={event => setProfile({ ...profile, muteAlarmNotifications: event.target.checked })} /> Mute error notification bell <small>Alarms remain available on the Alarms page.</small></label>}{feedback}<button className="primary-button compact">Save appearance</button></form></section>}
+    {tab === "security" && <section className="panel settings-panel"><form onSubmit={savePassword}><h2>Change password</h2><label>Current password<input type="password" autoComplete="current-password" value={passwords.currentPassword} onChange={event => setPasswords({ ...passwords, currentPassword: event.target.value })} required /></label><label>New password<input type="password" autoComplete="new-password" minLength={8} value={passwords.newPassword} onChange={event => setPasswords({ ...passwords, newPassword: event.target.value })} required /></label><label>Confirm new password<input type="password" autoComplete="new-password" minLength={8} value={passwords.confirmPassword} onChange={event => setPasswords({ ...passwords, confirmPassword: event.target.value })} required /></label>{feedback}<button className="primary-button compact">Change password</button></form></section>}
+    {tab === "organization" && user.role === "admin" && <OrganizationSettings />}
+    {tab === "danger" && !user.primaryAdmin && <section className="panel danger-zone"><h2>Delete account</h2><p>This permanently removes your account, devices, telemetry, and command history. It cannot be recovered.</p><label>Type DELETE MY ACCOUNT<input value={confirmation} onChange={event => setConfirmation(event.target.value)} /></label>{feedback}<button className="danger-button" disabled={confirmation !== "DELETE MY ACCOUNT"} onClick={removeAccount}><Trash2 size={16} /> Permanently delete account</button></section>}
+  </main>;
+}
+
 function ProfileSettings() {
   const { user, logout, setCurrentUser } = useAuth();
+  const [activeTab, setActiveTab] = useState<"profile" | "appearance" | "security" | "organization" | "danger">("profile");
   const [name, setName] = useState(user?.name || "");
   const [profilePhoto, setProfilePhoto] = useState(user?.profilePhoto || "");
   const [theme, setTheme] = useState<Theme>(user?.theme || "default");
+  const [fontSize, setFontSize] = useState(user?.fontSize || "large");
   const [email, setEmail] = useState(user?.email || "");
   const [phone, setPhone] = useState(user?.phone || "");
   const [muteAlarmNotifications, setMuteAlarmNotifications] = useState(Boolean(user?.muteAlarmNotifications));
@@ -1041,7 +1110,7 @@ function ProfileSettings() {
   async function save(event: FormEvent) {
     event.preventDefault(); setError(""); setMessage("");
     try {
-      const result = await api<{ user: User }>("/auth/me", { method: "PATCH", body: JSON.stringify({ name, email, phone, profilePhoto, theme, muteAlarmNotifications }) });
+      const result = await api<{ user: User }>("/auth/me", { method: "PATCH", body: JSON.stringify({ name, email, phone, profilePhoto, theme, fontSize, muteAlarmNotifications }) });
       setCurrentUser(result.user); setMessage("Profile updated");
     } catch (e) { setError(e instanceof Error ? e.message : "Update failed"); }
   }

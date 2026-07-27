@@ -35,6 +35,7 @@ export async function authenticate(identifier: string, password: string) {
             profilePhoto: user.profilePhoto,
             deviceLimit: user.deviceLimit,
             theme: user.theme,
+            fontSize: user.fontSize,
             muteAlarmNotifications: user.muteAlarmNotifications,
             primaryAdmin: user.email?.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase()
         }

@@ -53,7 +53,7 @@ export async function login(req: Request, res: Response) {
 
 export async function me(req: AuthRequest, res: Response) {
     const user = await User.findOne({ userId: req.user!.userId })
-        .select("userId organizationId name email phone role active nickname profilePhoto deviceLimit theme muteAlarmNotifications");
+        .select("userId organizationId name email phone role active nickname profilePhoto deviceLimit theme fontSize muteAlarmNotifications");
 
     if (!user?.active) {
         return res.status(401).json({ success: false, error: "User is inactive" });
@@ -133,6 +133,7 @@ export async function register(req: Request, res: Response) {
 export async function updateMe(req: AuthRequest, res: Response) {
     const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
     const theme = req.body.theme;
+    const fontSize = req.body.fontSize;
     const email = normalizeEmail(req.body.email);
     const phone = normalizePhone(req.body.phone);
     const muteAlarmNotifications = req.body.muteAlarmNotifications;
@@ -150,6 +151,9 @@ export async function updateMe(req: AuthRequest, res: Response) {
     }
     if (theme !== undefined && !["default", "dark", "spring", "summer", "autumn", "winter"].includes(theme)) {
         return res.status(400).json({ success: false, error: "Select a valid account theme" });
+    }
+    if (fontSize !== undefined && !["standard", "large", "extra-large"].includes(fontSize)) {
+        return res.status(400).json({ success: false, error: "Select a valid font size" });
     }
     const current = await User.findOne({ userId: req.user!.userId }).select("email role");
     if (!current) return res.status(404).json({ success: false, error: "User not found" });
@@ -169,6 +173,7 @@ export async function updateMe(req: AuthRequest, res: Response) {
         ...(email ? { email } : {}),
         ...(phone ? { phone } : {}),
         ...(theme ? { theme } : {}),
+        ...(fontSize ? { fontSize } : {}),
         ...(current.role === "admin" && typeof muteAlarmNotifications === "boolean"
             ? { muteAlarmNotifications }
             : {})
@@ -183,7 +188,7 @@ export async function updateMe(req: AuthRequest, res: Response) {
             }
         },
         { new: true }
-    ).select("userId organizationId name email phone role active nickname profilePhoto deviceLimit theme muteAlarmNotifications");
+    ).select("userId organizationId name email phone role active nickname profilePhoto deviceLimit theme fontSize muteAlarmNotifications");
     if (!user) {
         return res.status(404).json({ success: false, error: "User not found" });
     }
