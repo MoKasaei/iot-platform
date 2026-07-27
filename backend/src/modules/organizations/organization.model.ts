@@ -5,6 +5,7 @@ export interface IOrganization extends Document {
     organizationId: string;
 
     name: string;
+    code?: string;
 
     description?: string;
     logo?: string;
@@ -34,6 +35,11 @@ const schema = new Schema<IOrganization>(
         description: {
             type: String,
             default: ""
+        },
+        code: {
+            type: String,
+            trim: true,
+            maxlength: 40
         },
         logo: {
             type: String

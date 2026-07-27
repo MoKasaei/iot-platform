@@ -4,6 +4,7 @@ import Device from "../devices/device.model";
 import Telemetry from "./telemetry.model";
 import { AuthRequest } from "../../middleware/auth.middleware";
 import { deviceAccessFilter } from "../devices/device.access";
+import { syncTelemetryAlarms } from "../alarms/alarm.service";
 
 const legacyStatusKeys = [
     "TempSet", "WinSum", "Eco", "Spk", "AutoManual", "Fan1", "Fan2",
@@ -126,6 +127,17 @@ export async function receiveTelemetry(
             }
 
         );
+
+        const alarmDevice = await Device.findOne({ deviceId, organizationId })
+            .select("ownerUserId");
+        if (alarmDevice) {
+            await syncTelemetryAlarms({
+                organizationId,
+                deviceId,
+                ownerUserId: alarmDevice.ownerUserId,
+                data: normalizedData
+            });
+        }
 
 
 

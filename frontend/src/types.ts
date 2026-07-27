@@ -5,7 +5,8 @@ export interface User {
   userId: string;
   organizationId: string;
   name: string;
-  email: string;
+  email?: string;
+  phone?: string;
   role: Role;
   active?: boolean;
   primaryAdmin?: boolean;
@@ -14,6 +15,7 @@ export interface User {
   deviceLimit?: number | null;
   deviceCount?: number;
   theme?: Theme;
+  muteAlarmNotifications?: boolean;
   createdAt?: string;
 }
 
@@ -24,7 +26,7 @@ export interface Device {
   typeName?: string;
   name: string;
   ownerUserId?: string;
-  owner?: Pick<User, "userId" | "name" | "nickname" | "email">;
+  owner?: Pick<User, "userId" | "name" | "nickname" | "email" | "phone">;
   hardware: string;
   firmwareVersion: string;
   online: boolean;
@@ -40,6 +42,7 @@ export interface Device {
 export interface Organization {
   organizationId: string;
   name: string;
+  code?: string;
   logo?: string;
 }
 
@@ -73,4 +76,17 @@ export interface WeatherReading {
   sourceLatitude: number;
   sourceLongitude: number;
   distanceKm: number;
+}
+
+export interface Alarm {
+  _id: string;
+  deviceId: string;
+  deviceName: string;
+  code: string;
+  value: string;
+  message: string;
+  read: boolean;
+  resolvedAt?: string;
+  createdAt: string;
+  owner?: { userId: string; name: string; nickname?: string; email?: string; phone?: string };
 }

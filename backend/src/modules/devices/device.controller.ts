@@ -14,6 +14,7 @@ import User from "../users/user.model";
 import Telemetry from "../telemetry/telemetry.model";
 import Command from "../commands/command.model";
 import { deviceAccessFilter } from "./device.access";
+import Alarm from "../alarms/alarm.model";
 
 export async function listDevices(req: AuthRequest, res: Response) {
     const devices = await Device.find(deviceAccessFilter(req))
@@ -27,7 +28,7 @@ export async function listDevices(req: AuthRequest, res: Response) {
     );
     const owners = req.user!.role === "admin"
         ? await User.find({ userId: { $in: devices.map(device => device.ownerUserId).filter((id): id is string => Boolean(id)) } })
-            .select("userId name nickname email")
+            .select("userId name nickname email phone")
         : [];
     const ownerMap = new Map(owners.map(owner => [owner.userId, owner]));
 
@@ -451,7 +452,8 @@ export async function deleteDevice(req: AuthRequest, res: Response) {
     }
     await Promise.all([
         Telemetry.deleteMany({ organizationId: device.organizationId, deviceId: device.deviceId }),
-        Command.deleteMany({ organizationId: device.organizationId, deviceId: device.deviceId })
+        Command.deleteMany({ organizationId: device.organizationId, deviceId: device.deviceId }),
+        Alarm.deleteMany({ organizationId: device.organizationId, deviceId: device.deviceId })
     ]);
     await device.deleteOne();
     return res.json({ success: true });

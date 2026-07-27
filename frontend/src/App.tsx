@@ -1,12 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import {
-  Activity, Bell, Box, ChevronRight, Gauge, LayoutDashboard, LogOut,
+  Activity, Bell, Box, ChevronRight, Clock, Cpu, Gauge, HardDrive, LayoutDashboard, LogOut,
   Droplets, MapPin, Menu, Plus, Search, Settings, ShieldCheck,
   Thermometer, Trash2, Upload, Users, Wifi, WifiOff, X
 } from "lucide-react";
 import { divIcon, LatLngExpression } from "leaflet";
-import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
+import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import {
   CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip,
   XAxis, YAxis
@@ -14,7 +14,7 @@ import {
 import { api } from "./api";
 import { useAuth } from "./auth";
 import type {
-  Device, DeviceCredentials, DeviceType, Organization, Role, TelemetryPoint, Theme, User,
+  Alarm, Device, DeviceCredentials, DeviceType, Organization, Role, TelemetryPoint, Theme, User,
   WeatherReading
 } from "./types";
 
@@ -64,7 +64,7 @@ function Login() {
         <span className="eyebrow">WELCOME BACK</span>
         <h2>Sign in to your workspace</h2>
         <p>Sign in, or create your own account.</p>
-        <label>Email address<input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="email" required /></label>
+        <label>Email address or phone number<input value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com or +964…" autoComplete="username" required /></label>
         <label>Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" required /></label>
         <p className="forgot-note">Forgot your password? Contact the administrator of {organizationName} to receive a temporary password.</p>
         {error && <div className="error">{error}</div>}
@@ -77,7 +77,7 @@ function Login() {
 
 function Register() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ name: "", email: "", password: "", captchaAnswer: "", website: "" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", captchaAnswer: "", website: "" });
   const [challenge, setChallenge] = useState({ question: "", token: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -87,6 +87,9 @@ function Register() {
   useEffect(() => { refreshCaptcha(); }, []);
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError("");
+    if (!form.email.trim() && !form.phone.trim()) {
+      setError("Enter an email address or phone number"); setBusy(false); return;
+    }
     try {
       await api("/auth/register", { method: "POST", body: JSON.stringify({ ...form, captchaToken: challenge.token }) });
       navigate("/login", { replace: true });
@@ -97,7 +100,8 @@ function Register() {
   }
   return <main className="login-page"><section className="login-brand"><div className="brand-mark"><Activity /></div><div><span className="eyebrow">JOIN THE PLATFORM</span><h1>Connect your first device.</h1><p>Create a secure account and start with one device. An administrator can raise this limit later.</p></div></section><section className="login-panel"><form className="login-form" onSubmit={submit}><span className="eyebrow">NEW ACCOUNT</span><h2>Create your account</h2>
     <label>Full name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} maxLength={120} required /></label>
-    <label>Email address<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required /></label>
+    <label>Email address (optional)<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
+    <label>Phone number (optional)<input type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+964…" /></label>
     <label>Password<input type="password" minLength={8} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required /></label>
     <label className="honeypot" aria-hidden="true">Website<input tabIndex={-1} autoComplete="off" value={form.website} onChange={e => setForm({ ...form, website: e.target.value })} /></label>
     <label>Security check: {challenge.question}<input inputMode="numeric" value={form.captchaAnswer} onChange={e => setForm({ ...form, captchaAnswer: e.target.value })} required /></label>
@@ -105,15 +109,52 @@ function Register() {
   </form></section></main>;
 }
 
+function useAlarms(enabled = true) {
+  const [alarms, setAlarms] = useState<Alarm[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [error, setError] = useState("");
+  const load = () => api<{ alarms: Alarm[]; unreadCount: number }>("/alarms")
+    .then(response => { setAlarms(response.alarms); setUnreadCount(response.unreadCount); setError(""); })
+    .catch(loadError => setError(loadError.message));
+  useEffect(() => {
+    if (!enabled) { setAlarms([]); setUnreadCount(0); return; }
+    void load();
+    const interval = window.setInterval(load, 5000);
+    return () => window.clearInterval(interval);
+  }, [enabled]);
+  async function read(alarmId: string) {
+    await api(`/alarms/${alarmId}/read`, { method: "PATCH" }); await load();
+  }
+  async function dismiss(alarmId: string) {
+    await api(`/alarms/${alarmId}`, { method: "DELETE" }); await load();
+  }
+  async function dismissAll() {
+    await api("/alarms", { method: "DELETE" }); await load();
+  }
+  return { alarms, unreadCount, error, read, dismiss, dismissAll, refresh: load };
+}
+
 function Shell() {
   const { user, loading, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const [organization, setOrganization] = useState<Organization | null>(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const alarmFeed = useAlarms(!(user?.role === "admin" && user.muteAlarmNotifications));
   useEffect(() => {
     if (user) api<{ organization: Organization }>("/organizations/current")
       .then(response => setOrganization(response.organization))
       .catch(() => undefined);
   }, [user?.organizationId]);
+  useEffect(() => {
+    if (!showNotifications) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!(event.target as Element).closest?.(".notification-wrap")) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, [showNotifications]);
   if (loading) return <div className="page-loader"><Activity className="spin" /></div>;
   if (!user) return <Navigate to="/login" replace />;
 
@@ -141,13 +182,13 @@ function Shell() {
       </div>
     </aside>
     <div className="workspace">
-      <header><button className="menu-button" onClick={() => setOpen(true)}><Menu /></button><div className="header-right"><span className="org-chip">{user.organizationId}</span><Bell size={20} /></div></header>
+      <header><button className="menu-button" onClick={() => setOpen(true)}><Menu /></button><div className="header-right"><span className="org-chip">{organization?.code || user.organizationId}</span><div className="notification-wrap"><button className="notification-button" onClick={() => setShowNotifications(value => !value)} aria-label="Notifications"><Bell size={20} />{alarmFeed.unreadCount > 0 && <b>{Math.min(alarmFeed.unreadCount, 99)}</b>}</button>{showNotifications && <div className="notification-panel"><div className="notification-head"><div><strong>Alarms</strong><small>{alarmFeed.unreadCount} unread</small></div><NavLink to="/alerts" onClick={() => setShowNotifications(false)}>View all</NavLink></div><div className="notification-list">{alarmFeed.alarms.slice(0, 6).map(alarm => <article className={`${alarm.read ? "" : "unread"} ${alarm.resolvedAt ? "resolved" : ""}`} key={alarm._id}><span className="alarm-dot" /><div><strong>{alarm.deviceName}</strong><p>{alarm.message}</p>{user.role === "admin" && <small className="alarm-owner">Owner: {alarm.owner ? alarm.owner.nickname ? `${alarm.owner.nickname} · ${alarm.owner.name}` : alarm.owner.name : "Unassigned"}</small>}<small>{new Date(alarm.createdAt).toLocaleString()}</small></div><div className="notification-actions">{!alarm.read && <button title="Mark as read" onClick={() => void alarmFeed.read(alarm._id)}>Read</button>}<button title="Dismiss" onClick={() => void alarmFeed.dismiss(alarm._id)}><X size={14} /></button></div></article>)}{alarmFeed.alarms.length === 0 && <div className="notification-empty">{user.role === "admin" && user.muteAlarmNotifications ? "Notifications muted" : "No alarms"}</div>}</div></div>}</div></div></header>
       <Routes>
         <Route path="/" element={<Overview />} />
         <Route path="/devices" element={<Devices />} />
         <Route path="/devices/:deviceId" element={<DeviceDetail />} />
         <Route path="/users" element={user.role === "admin" ? <UserAccess /> : <Navigate to="/" />} />
-        <Route path="/alerts" element={<Placeholder title="Alerts" text="Alarm rules and event history will appear here." />} />
+        <Route path="/alerts" element={<AlarmCenter />} />
         <Route path="/settings" element={<ProfileSettings />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
@@ -197,11 +238,101 @@ function useDevices() {
   };
 }
 
+interface OverviewData {
+  system: {
+    cpu: { cores: number; usagePercent: number };
+    ram: { totalBytes: number; usedBytes: number };
+    storage: { totalBytes: number; usedBytes: number };
+    uptimeSeconds: number;
+  };
+  totals: {
+    devices: number; onlineDevices: number; errorDevices: number;
+    users: number; administrators: number;
+  };
+  devices: Array<{
+    deviceId: string; name: string; typeId: string; online: boolean; error: boolean;
+    latitude: number; longitude: number; label?: string; errors: string[];
+    owner?: { userId: string; name: string; nickname?: string };
+  }>;
+}
+
+function percent(used: number, total: number) {
+  return total > 0 ? Math.round(used / total * 100) : 0;
+}
+
+function gigabytes(bytes: number) {
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
+function uptimeLabel(seconds: number) {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${days}d ${hours}h ${minutes}m`;
+}
+
+function MetricGauge({ label, value, detail, icon: Icon }: { label: string; value: number; detail: string; icon: typeof Cpu }) {
+  const bounded = Math.max(0, Math.min(100, value));
+  return <article className="system-metric"><div className="metric-heading"><Icon size={18} /><span>{label}</span></div><div className="ring-gauge" style={{ background: `conic-gradient(var(--theme-accent) ${bounded}%, var(--ring-track, #e5ebf1) ${bounded}% 100%)` }}><div><strong>{bounded}%</strong></div></div><small>{detail}</small></article>;
+}
+
+function FitDeviceBounds({ devices, trigger }: { devices: OverviewData["devices"]; trigger: number }) {
+  const map = useMap();
+  useEffect(() => {
+    if (devices.length === 1) {
+      map.setView([devices[0].latitude, devices[0].longitude], 11);
+    } else if (devices.length > 1) {
+      map.fitBounds(devices.map(device => [device.latitude, device.longitude] as [number, number]), { padding: [35, 35] });
+    }
+  }, [trigger, map]);
+  return null;
+}
+
+function AdminOverview({ name }: { name: string }) {
+  const [data, setData] = useState<OverviewData | null>(null);
+  const [error, setError] = useState("");
+  const [mapRecenter, setMapRecenter] = useState(0);
+  useEffect(() => {
+    let active = true;
+    const load = () => api<OverviewData>("/overview")
+      .then(response => { if (active) { setData(response); setError(""); } })
+      .catch(loadError => { if (active) setError(loadError.message); });
+    void load();
+    const interval = window.setInterval(load, 5000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, []);
+  const marker = (hasError: boolean) => divIcon({
+    className: "overview-map-marker",
+    html: `<span class="${hasError ? "error" : ""}"></span>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11]
+  });
+  const onlinePercent = data?.totals.devices ? Math.round(data.totals.onlineDevices / data.totals.devices * 100) : 0;
+  return <main className="content"><div className="page-title"><div><span className="eyebrow">SYSTEM OPERATIONS</span><h1>Good day, {name.split(" ")[0]}</h1><p>Live infrastructure and organization overview.</p></div><span className="live"><i /> Live</span></div>
+    {error && <div className="error">{error}</div>}
+    <section className="system-metrics-grid">
+      <MetricGauge icon={Cpu} label="CPU" value={data?.system.cpu.usagePercent || 0} detail={`${data?.system.cpu.cores || "—"} cores`} />
+      <MetricGauge icon={Activity} label="RAM" value={data ? percent(data.system.ram.usedBytes, data.system.ram.totalBytes) : 0} detail={data ? `${gigabytes(data.system.ram.usedBytes)} / ${gigabytes(data.system.ram.totalBytes)}` : "Loading"} />
+      <MetricGauge icon={HardDrive} label="Storage" value={data ? percent(data.system.storage.usedBytes, data.system.storage.totalBytes) : 0} detail={data ? `${gigabytes(data.system.storage.usedBytes)} / ${gigabytes(data.system.storage.totalBytes)}` : "Loading"} />
+      <article className="system-metric uptime-metric"><div className="metric-heading"><Clock size={18} /><span>Server uptime</span></div><strong>{data ? uptimeLabel(data.system.uptimeSeconds) : "—"}</strong><small>Since the last server restart</small></article>
+    </section>
+    <section className="overview-totals">
+      <article><span>Devices</span><strong>{data?.totals.devices ?? "—"}</strong><div className="progress-bar"><i style={{ width: `${onlinePercent}%` }} /></div><small>{data?.totals.onlineDevices ?? "—"} online · {onlinePercent}%</small></article>
+      <article><span>Users</span><strong>{data?.totals.users ?? "—"}</strong><div className="progress-bar blue"><i style={{ width: `${data?.totals.users ? Math.min(100, data.totals.administrators / data.totals.users * 100) : 0}%` }} /></div><small>{data?.totals.administrators ?? "—"} administrators</small></article>
+      <article><span>Device errors</span><strong className={data?.totals.errorDevices ? "danger-text" : ""}>{data?.totals.errorDevices ?? "—"}</strong><div className="progress-bar red"><i style={{ width: `${data?.totals.devices ? data.totals.errorDevices / data.totals.devices * 100 : 0}%` }} /></div><small>Reported error or alarm states</small></article>
+    </section>
+    <section className="panel overview-map-panel"><div className="panel-head"><div><h2>Device locations</h2><p>Green is normal; red indicates a reported error</p></div></div>
+      {data?.devices.length ? <div className="overview-map-wrap"><button className="map-recenter-button" onClick={() => setMapRecenter(value => value + 1)}><MapPin size={15} /> Recenter</button><MapContainer center={[36.1911, 44.0092]} zoom={4} scrollWheelZoom className="overview-map"><TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" /><FitDeviceBounds devices={data.devices} trigger={mapRecenter} />{data.devices.map(device => <Marker key={device.deviceId} position={[device.latitude, device.longitude]} icon={marker(device.error)}><Popup><div className="map-device-card"><div className="map-device-card-head"><span className={device.error ? "map-state error" : "map-state"} /><div><strong>{device.name}</strong><small>{device.typeId} · {device.online ? "Online" : "Offline"}</small></div></div><dl><div><dt>Device ID</dt><dd><code>{device.deviceId}</code></dd></div><div><dt>Owner</dt><dd>{device.owner ? device.owner.nickname ? `${device.owner.nickname} · ${device.owner.name}` : device.owner.name : "Unassigned"}</dd></div><div><dt>Location</dt><dd>{device.label || `${fixed(device.latitude, 4)}, ${fixed(device.longitude, 4)}`}</dd></div></dl>{device.error && <div className="map-errors"><span>Error codes</span>{device.errors.map(error => <code key={error}>{error}</code>)}</div>}<NavLink className="map-device-link" to={`/devices/${device.deviceId}`}>Open device <ChevronRight size={15} /></NavLink></div></Popup></Marker>)}</MapContainer></div> : <div className="empty"><MapPin /><strong>No device locations</strong><span>Set device locations to display the organization map.</span></div>}
+    </section>
+  </main>;
+}
+
 function Overview() {
   const { user } = useAuth();
   const { devices, loading, error } = useDevices();
   const online = devices.filter(d => d.online).length;
   const latest = devices.slice(0, 5);
+  if (user?.role === "admin") return <AdminOverview name={user.name} />;
 
   return <main className="content">
     <div className="page-title"><div><span className="eyebrow">LIVE OPERATIONS</span><h1>Good day, {user!.name.split(" ")[0]}</h1><p>Here’s what’s happening across your connected environment.</p></div><span className="live"><i /> Live</span></div>
@@ -226,9 +357,25 @@ function Stat({ icon: Icon, label, value, note, tone = "" }: { icon: typeof Box;
   return <article className={`stat ${tone}`}><div className="stat-icon"><Icon size={20} /></div><span>{label}</span><strong>{value}</strong><small>{note}</small></article>;
 }
 
+function deviceErrors(state: Record<string, unknown> | undefined) {
+  if (!state) return [];
+  return Object.entries(state).flatMap(([key, value]) => {
+    if (!/(error|fault|alarm)/i.test(key)) return [];
+    const normal = [undefined, null, false, 0, "0", "", "false", "none", "ok"];
+    const normalized = typeof value === "string" ? value.toLowerCase() : value;
+    if (normal.includes(normalized as never)) return [];
+    if (Array.isArray(value)) return value.map(entry => `${key}: ${String(entry)}`);
+    if (value && typeof value === "object") return Object.entries(value)
+      .filter(([, entry]) => !normal.includes(entry as never))
+      .map(([code, entry]) => `${key}.${code}: ${String(entry)}`);
+    return [`${key}: ${String(value)}`];
+  });
+}
+
 function DeviceRow({ device, showOwner }: { device: Device; showOwner?: boolean }) {
   const readings = getDisplayReadings(device.state || {});
-  return <NavLink className="device-row" to={`/devices/${device.deviceId}`}><div className="device-icon"><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.typeName || device.typeId}{showOwner ? ` · ID: ${device.deviceId} · ${device.owner ? device.owner.nickname ? `${device.owner.nickname} · ${device.owner.name}` : device.owner.name : "Unassigned"}` : ""}</small></div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{readings.map(reading => <span key={reading.label}><small>{reading.label}</small>{reading.value}</span>)}</div><ChevronRight className="row-arrow" /></NavLink>;
+  const errors = deviceErrors(device.state);
+  return <NavLink className="device-row" to={`/devices/${device.deviceId}`}><div className={`device-icon ${errors.length ? "has-error" : ""}`}><Gauge /></div><div className="device-name"><strong>{device.name}</strong><small>{device.typeName || device.typeId}{showOwner ? ` · ID: ${device.deviceId} · ${device.owner ? device.owner.nickname ? `${device.owner.nickname} · ${device.owner.name}` : device.owner.name : "Unassigned"}` : ""}</small>{errors.length > 0 && <span className="device-error-badge">{errors[0]}{errors.length > 1 ? ` +${errors.length - 1}` : ""}</span>}</div><span className={device.online ? "status online" : "status"}><i />{device.online ? "Online" : "Offline"}</span><div className="reading">{readings.map(reading => <span key={reading.label}><small>{reading.label}</small>{reading.value}</span>)}</div><ChevronRight className="row-arrow" /></NavLink>;
 }
 
 function Devices() {
@@ -237,7 +384,7 @@ function Devices() {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("name");
   const [showAddDevice, setShowAddDevice] = useState(false);
-  const filtered = devices.filter(d => `${d.name} ${d.deviceId} ${d.typeName || d.typeId} ${d.owner?.name || ""} ${d.owner?.nickname || ""} ${d.owner?.email || ""}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => {
+  const filtered = devices.filter(d => `${d.name} ${d.deviceId} ${d.typeName || d.typeId} ${d.owner?.name || ""} ${d.owner?.nickname || ""} ${d.owner?.email || ""} ${d.owner?.phone || ""}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => {
     if (sort === "owner") return (a.owner?.nickname || a.owner?.name || "").localeCompare(b.owner?.nickname || b.owner?.name || "");
     if (sort === "status") return Number(b.online) - Number(a.online);
     if (sort === "type") return (a.typeName || a.typeId).localeCompare(b.typeName || b.typeId);
@@ -404,8 +551,7 @@ const statusDefinitions = [
   { key: "CircularPump", label: "Circulation pump" },
   { key: "DrainPump", label: "Drain pump" },
   { key: "SystemONOFF", label: "System" },
-  { key: "TurboONOFF", label: "Turbo" },
-  { key: "Errors", label: "Errors" }
+  { key: "TurboONOFF", label: "Turbo" }
 ];
 
 function EquipmentReadings({ state }: { state: Record<string, unknown> }) {
@@ -418,14 +564,16 @@ function EquipmentReadings({ state }: { state: Record<string, unknown> }) {
       ...definition,
       active: !["0", "false", "off", ""].includes(String(state[definition.key]).toLowerCase())
     }));
+  const errors = deviceErrors(state);
 
-  if (!sensors.length && !statuses.length) return null;
+  if (!sensors.length && !statuses.length && !errors.length) return null;
 
   return <section className="panel equipment-panel">
     <div className="panel-head"><div><h2>Equipment readings</h2></div></div>
     <div className="equipment-grid">
       {sensors.map(sensor => <article className="equipment-reading" key={sensor.key}><span>{sensor.label}</span><strong>{fixed(sensor.value)} <small>{sensor.unit}</small></strong></article>)}
       {statuses.map(status => <article className="equipment-status" key={status.key}><i className={status.active ? "active" : ""} /><span>{status.label}</span><strong>{status.active ? "On" : "Off"}</strong></article>)}
+      {errors.length > 0 && <article className="equipment-error-text"><span>Reported errors</span>{errors.map(error => <code key={error}>{error}</code>)}</article>}
     </div>
   </section>;
 }
@@ -534,17 +682,24 @@ function DeviceDetail() {
   }
 
   useEffect(() => {
+    let active = true;
+    let initialLoad = true;
     setError("");
-    Promise.all([
-      api<{ device: Device }>(`/devices/${deviceId}`),
-      api<{ telemetry: TelemetryPoint[] }>(`/devices/${deviceId}/telemetry?limit=100`)
-    ])
+    const loadInsight = () => Promise.all([
+        api<{ device: Device }>(`/devices/${deviceId}`),
+        api<{ telemetry: TelemetryPoint[] }>(`/devices/${deviceId}/telemetry?limit=100`)
+      ])
       .then(([deviceResponse, telemetryResponse]) => {
+        if (!active) return;
         setDevice(deviceResponse.device);
-        setOwnerUserId(deviceResponse.device.ownerUserId || "");
-        setNameDraft(deviceResponse.device.name);
         setTelemetry(telemetryResponse.telemetry);
-        if (hasCoordinates(deviceResponse.device.location)) {
+        const wasInitialLoad = initialLoad;
+        if (wasInitialLoad) {
+          initialLoad = false;
+          setOwnerUserId(deviceResponse.device.ownerUserId || "");
+          setNameDraft(deviceResponse.device.name);
+        }
+        if (wasInitialLoad && hasCoordinates(deviceResponse.device.location)) {
           setLocation({
             ...deviceResponse.device.location,
             label: deviceResponse.device.location.label || ""
@@ -552,12 +707,20 @@ function DeviceDetail() {
           void loadWeather();
         }
       })
-      .catch(loadError => setError(loadError.message));
+      .catch(loadError => {
+        if (active) setError(loadError.message);
+      });
+    void loadInsight();
+    const insightInterval = window.setInterval(loadInsight, 3000);
     if (user?.role === "admin") {
       api<{ users: User[] }>("/users")
         .then(response => setOwners(response.users.filter(owner => owner.active)))
         .catch(loadError => setError(loadError.message));
     }
+    return () => {
+      active = false;
+      window.clearInterval(insightInterval);
+    };
   }, [deviceId]);
 
   async function saveLocation() {
@@ -659,7 +822,7 @@ function DeviceDetail() {
     </div>
     {error && <div className="error">{error}</div>}
 
-    {user?.role === "admin" && <section className="panel device-admin-panel"><div><span className="eyebrow">ADMIN DEVICE DETAILS</span><strong>Device ID: <code>{device.deviceId}</code></strong></div><label>Assigned owner<select value={ownerUserId} onChange={event => setOwnerUserId(event.target.value)}><option value="">Unassigned</option>{owners.map(owner => <option key={owner.userId} value={owner.userId}>{owner.nickname || owner.name} · {owner.email}</option>)}</select></label><button className="primary-button compact" disabled={savingOwner || ownerUserId === (device.ownerUserId || "")} onClick={saveOwner}>{savingOwner ? "Saving…" : "Save owner"}</button></section>}
+    {user?.role === "admin" && <section className="panel device-admin-panel"><div><span className="eyebrow">ADMIN DEVICE DETAILS</span><strong>Device ID: <code>{device.deviceId}</code></strong></div><label>Assigned owner<select value={ownerUserId} onChange={event => setOwnerUserId(event.target.value)}><option value="">Unassigned</option>{owners.map(owner => <option key={owner.userId} value={owner.userId}>{owner.nickname || owner.name} · {owner.email || owner.phone}</option>)}</select></label><button className="primary-button compact" disabled={savingOwner || ownerUserId === (device.ownerUserId || "")} onClick={saveOwner}>{savingOwner ? "Saving…" : "Save owner"}</button></section>}
 
     <section className="device-metrics">
       <Stat icon={Thermometer} label="Device temperature" value={`${fixed(numberFromAny(device.state || {}, "RoomTemp", "temperature"))} °C`} note="Latest device reading" tone="orange" />
@@ -721,7 +884,7 @@ function UserAccess() {
   const [error, setError] = useState("");
   const load = () => api<{ users: User[] }>("/users").then(r => setUsers(r.users)).catch(e => setError(e.message));
   const filteredUsers = users.filter(user =>
-    `${user.name} ${user.nickname || ""} ${user.email} ${user.role}`.toLowerCase().includes(query.toLowerCase())
+    `${user.name} ${user.nickname || ""} ${user.email || ""} ${user.phone || ""} ${user.role}`.toLowerCase().includes(query.toLowerCase())
   );
   useEffect(() => { load(); }, []);
 
@@ -733,8 +896,9 @@ function UserAccess() {
   }
 
   async function remove(user: User) {
-    const confirmation = window.prompt(`DANGER: This permanently deletes ${user.name}, all owned devices, and all their data.\n\nType ${user.email} to confirm.`);
-    if (confirmation !== user.email) return;
+    const contact = user.email || user.phone || "";
+    const confirmation = window.prompt(`DANGER: This permanently deletes ${user.name}, all owned devices, and all their data.\n\nType ${contact} to confirm.`);
+    if (confirmation !== contact) return;
     try {
       await api(`/users/${user.userId}`, { method: "DELETE", body: JSON.stringify({ confirmation }) });
       load();
@@ -743,11 +907,11 @@ function UserAccess() {
 
   return <main className="content">
     <div className="page-title"><div><span className="eyebrow">ADMINISTRATION</span><h1>User access</h1><p>Control who can access this organization and what they can do.</p></div><button className="primary-button compact" onClick={() => setShowForm(true)}><Plus size={18} /> Add user</button></div>
-    <div className="toolbar"><div className="input-search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, nickname, email or role" /></div></div>
+    <div className="toolbar"><div className="input-search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name, nickname, email, phone or role" /></div></div>
     {error && <div className="error">{error}</div>}
     <section className="panel user-table">
       <div className="table-head"><span>User</span><span>Devices</span><span>Status</span><span>Actions</span></div>
-      {filteredUsers.map(user => <div className="table-row" key={user.userId}><div className="user-cell"><span className="avatar">{user.profilePhoto ? <img src={user.profilePhoto} alt="" /> : user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.nickname || user.name}</strong><small>{user.nickname ? `${user.name} · ` : ""}{user.email}{user.primaryAdmin ? " · Primary admin" : ""}</small></div></div><span className="role"><ShieldCheck size={15} /> {user.deviceCount || 0} / {user.deviceLimit === null ? "Unlimited" : user.deviceLimit ?? 1}</span><span className={user.active ? "status online" : "status"}><i />{user.active ? "Active" : "Disabled"}</span><div className="row-actions"><button className="text-button" onClick={() => setEditingUser(user)}>Edit</button><button className="text-button" disabled={user.primaryAdmin} onClick={() => toggle(user)}>{user.primaryAdmin ? "Protected" : user.active ? "Disable" : "Enable"}</button><button className="icon-danger" disabled={user.primaryAdmin} onClick={() => remove(user)} title="Permanently delete"><Trash2 size={16} /></button></div></div>)}
+      {filteredUsers.map(user => <div className="table-row" key={user.userId}><div className="user-cell"><span className="avatar">{user.profilePhoto ? <img src={user.profilePhoto} alt="" /> : user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.nickname || user.name}</strong><small>{user.nickname ? `${user.name} · ` : ""}{[user.email, user.phone].filter(Boolean).join(" · ")}{user.primaryAdmin ? " · Primary admin" : ""}</small></div></div><span className="role"><ShieldCheck size={15} /> {user.deviceCount || 0} / {user.deviceLimit === null ? "Unlimited" : user.deviceLimit ?? 1}</span><span className={user.active ? "status online" : "status"}><i />{user.active ? "Active" : "Disabled"}</span><div className="row-actions"><button className="text-button" onClick={() => setEditingUser(user)}>Edit</button><button className="text-button" disabled={user.primaryAdmin} onClick={() => toggle(user)}>{user.primaryAdmin ? "Protected" : user.active ? "Disable" : "Enable"}</button><button className="icon-danger" disabled={user.primaryAdmin} onClick={() => remove(user)} title="Permanently delete"><Trash2 size={16} /></button></div></div>)}
     </section>
     {showForm && <NewUser onClose={() => setShowForm(false)} onCreated={() => { setShowForm(false); load(); }} />}
     {editingUser && <EditUser user={editingUser} onClose={() => setEditingUser(null)} onSaved={() => { setEditingUser(null); load(); }} />}
@@ -755,7 +919,7 @@ function UserAccess() {
 }
 
 function EditUser({ user, onClose, onSaved }: { user: User; onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState({ nickname: user.nickname || "", role: user.role, active: user.active !== false, deviceLimit: user.deviceLimit ?? 1 });
+  const [form, setForm] = useState({ nickname: user.nickname || "", email: user.email || "", phone: user.phone || "", role: user.role, active: user.active !== false, deviceLimit: user.deviceLimit ?? 1 });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [temporaryPassword, setTemporaryPassword] = useState("");
@@ -782,8 +946,10 @@ function EditUser({ user, onClose, onSaved }: { user: User; onClose: () => void;
       setResetMessage("Temporary password set");
     } catch (e) { setError(e instanceof Error ? e.message : "Password reset failed"); }
   }
-  return <div className="modal-backdrop"><form className="modal" onSubmit={submit}><div className="modal-title"><div><h2>Manage user</h2><p>{user.name} · {user.email}</p></div><button type="button" onClick={onClose}><X /></button></div>
+  return <div className="modal-backdrop"><form className="modal" onSubmit={submit}><div className="modal-title"><div><h2>Manage user</h2><p>{user.name} · {user.email || user.phone}</p></div><button type="button" onClick={onClose}><X /></button></div>
     <label>Admin nickname<input value={form.nickname} onChange={e => setForm({ ...form, nickname: e.target.value })} maxLength={80} placeholder="Optional internal label" /></label>
+    <label>Email address<input type="email" disabled={user.primaryAdmin} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
+    <label>Phone number<input type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+964…" /></label>
     <label>Device allowance{user.primaryAdmin ? <input value="Unlimited" disabled /> : <input type="number" min={0} max={100} value={form.deviceLimit} onChange={e => setForm({ ...form, deviceLimit: Number(e.target.value) })} />}</label>
     <label>Access level<select disabled={user.primaryAdmin} value={form.role} onChange={e => setForm({ ...form, role: e.target.value as Role })}><option value="user">User</option><option value="admin">Administrator</option></select></label>
     <label className="checkbox-row"><input type="checkbox" disabled={user.primaryAdmin} checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} /> Account active</label>
@@ -793,7 +959,7 @@ function EditUser({ user, onClose, onSaved }: { user: User; onClose: () => void;
 }
 
 function NewUser({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState({ name: "", email: "", password: "", role: "user" as Role });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", role: "user" as Role });
   const [error, setError] = useState("");
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -804,11 +970,21 @@ function NewUser({ onClose, onCreated }: { onClose: () => void; onCreated: () =>
   }
   return <div className="modal-backdrop"><form className="modal" onSubmit={submit}><div className="modal-title"><div><h2>Add a user</h2><p>Create an account in your organization.</p></div><button type="button" onClick={onClose}><X /></button></div>
     <label>Full name<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-    <label>Email<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required /></label>
+    <label>Email (optional)<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></label>
+    <label>Phone (optional)<input type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+964…" /></label>
     <label>Temporary password<input type="password" minLength={8} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required /></label>
     <label>Access level<select value={form.role} onChange={e => setForm({ ...form, role: e.target.value as Role })}><option value="user">User — monitor and control devices</option><option value="admin">Admin — manage users and organization</option></select></label>
     {error && <div className="error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button compact">Create user</button></div>
   </form></div>;
+}
+
+function AlarmCenter() {
+  const feed = useAlarms();
+  const { user } = useAuth();
+  return <main className="content"><div className="page-title"><div><span className="eyebrow">NOTIFICATIONS</span><h1>Alarms</h1><p>Errors reported by devices assigned to you.</p></div>{feed.alarms.length > 0 && <button className="secondary-button" onClick={() => void feed.dismissAll()}><Trash2 size={16} /> Clear all</button>}</div>
+    {feed.error && <div className="error">{feed.error}</div>}
+    <section className="panel alarm-center">{feed.alarms.map(alarm => <article className={`${alarm.read ? "" : "unread"} ${alarm.resolvedAt ? "resolved" : ""}`} key={alarm._id}><span className="alarm-severity"><Bell size={18} /></span><div className="alarm-content"><div><strong>{alarm.deviceName}</strong><span className={alarm.resolvedAt ? "alarm-status resolved" : "alarm-status"}>{alarm.resolvedAt ? "Resolved" : "Active"}</span></div><p>{alarm.message}</p>{user?.role === "admin" && <small className="alarm-owner">Owner: {alarm.owner ? alarm.owner.nickname ? `${alarm.owner.nickname} · ${alarm.owner.name}` : alarm.owner.name : "Unassigned"}</small>}<small><code>{alarm.code}</code> · {new Date(alarm.createdAt).toLocaleString()}</small></div><div className="alarm-actions">{!alarm.read && <button className="text-button" onClick={() => void feed.read(alarm._id)}>Mark read</button>}<NavLink className="text-button" to={`/devices/${alarm.deviceId}`}>Open device</NavLink><button className="icon-danger" title="Dismiss alarm" onClick={() => void feed.dismiss(alarm._id)}><X size={16} /></button></div></article>)}{feed.alarms.length === 0 && <div className="empty"><Bell /><strong>No alarms</strong><span>Device errors and faults will appear here.</span></div>}</section>
+  </main>;
 }
 
 function OrganizationSettings() {
@@ -832,13 +1008,13 @@ function OrganizationSettings() {
     try {
       const result = await api<{ organization: Organization }>("/organizations/current", {
         method: "PATCH",
-        body: JSON.stringify({ name: organization.name, logo: organization.logo || "" })
+        body: JSON.stringify({ name: organization.name, code: organization.code || "ORG001", logo: organization.logo || "" })
       });
       setOrganization(result.organization); setMessage("Organization branding updated");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not update organization"); }
   }
   if (!organization) return error ? <div className="error">{error}</div> : null;
-  return <section className="panel settings-panel"><form onSubmit={save}><h2>Organization branding</h2><div className="profile-photo"><span className="org-logo-preview">{organization.logo ? <img src={organization.logo} alt="" /> : <Activity />}</span><label className="secondary-button compact"><Upload size={16} /> Choose logo<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={e => chooseLogo(e.target.files?.[0])} hidden /></label>{organization.logo && <button type="button" className="text-button" onClick={() => setOrganization({ ...organization, logo: "" })}>Remove logo</button>}</div><label>Organization name<input value={organization.name} onChange={e => setOrganization({ ...organization, name: e.target.value })} maxLength={120} required /></label>{message && <div className="success">{message}</div>}{error && <div className="error">{error}</div>}<button className="primary-button compact">Save organization</button></form></section>;
+  return <section className="panel settings-panel"><form onSubmit={save}><h2>Organization branding</h2><div className="profile-photo"><span className="org-logo-preview">{organization.logo ? <img src={organization.logo} alt="" /> : <Activity />}</span><label className="secondary-button compact"><Upload size={16} /> Choose logo<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={e => chooseLogo(e.target.files?.[0])} hidden /></label>{organization.logo && <button type="button" className="text-button" onClick={() => setOrganization({ ...organization, logo: "" })}>Remove logo</button>}</div><label>Organization name<input value={organization.name} onChange={e => setOrganization({ ...organization, name: e.target.value })} maxLength={120} required /></label><label>Organization code<input value={organization.code || ""} onChange={e => setOrganization({ ...organization, code: e.target.value.toUpperCase() })} maxLength={40} pattern="[A-Za-z0-9][A-Za-z0-9_-]{1,39}" placeholder="ORG001" required /><small>This editable code is shown in the dashboard. Internal data references remain unchanged.</small></label>{message && <div className="success">{message}</div>}{error && <div className="error">{error}</div>}<button className="primary-button compact">Save organization</button></form></section>;
 }
 
 function ProfileSettings() {
@@ -846,6 +1022,9 @@ function ProfileSettings() {
   const [name, setName] = useState(user?.name || "");
   const [profilePhoto, setProfilePhoto] = useState(user?.profilePhoto || "");
   const [theme, setTheme] = useState<Theme>(user?.theme || "default");
+  const [email, setEmail] = useState(user?.email || "");
+  const [phone, setPhone] = useState(user?.phone || "");
+  const [muteAlarmNotifications, setMuteAlarmNotifications] = useState(Boolean(user?.muteAlarmNotifications));
   const [confirmation, setConfirmation] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -862,7 +1041,7 @@ function ProfileSettings() {
   async function save(event: FormEvent) {
     event.preventDefault(); setError(""); setMessage("");
     try {
-      const result = await api<{ user: User }>("/auth/me", { method: "PATCH", body: JSON.stringify({ name, profilePhoto, theme }) });
+      const result = await api<{ user: User }>("/auth/me", { method: "PATCH", body: JSON.stringify({ name, email, phone, profilePhoto, theme, muteAlarmNotifications }) });
       setCurrentUser(result.user); setMessage("Profile updated");
     } catch (e) { setError(e instanceof Error ? e.message : "Update failed"); }
   }
@@ -889,7 +1068,7 @@ function ProfileSettings() {
     } catch (e) { setError(e instanceof Error ? e.message : "Could not change password"); }
   }
   return <main className="content"><div className="page-title"><div><span className="eyebrow">YOUR ACCOUNT</span><h1>Profile settings</h1><p>Update the identity shown in your panel.</p></div></div>
-    <section className="panel settings-panel"><form onSubmit={save}><div className="profile-photo"><span className="avatar large">{profilePhoto ? <img src={profilePhoto} alt="" /> : name.slice(0, 2).toUpperCase()}</span><label className="secondary-button compact"><Upload size={16} /> Choose photo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => choosePhoto(e.target.files?.[0])} hidden /></label></div><label>Display name<input value={name} onChange={e => setName(e.target.value)} maxLength={120} required /></label><label>Account theme<select value={theme} onChange={e => setTheme(e.target.value as Theme)}><option value="default">Default white</option><option value="dark">Night</option><option value="spring">Spring</option><option value="summer">Summer</option><option value="autumn">Autumn</option><option value="winter">Winter</option></select></label>{message && <div className="success">{message}</div>}{error && <div className="error">{error}</div>}<button className="primary-button compact">Save profile</button></form></section>
+    <section className="panel settings-panel"><form onSubmit={save}><div className="profile-photo"><span className="avatar large">{profilePhoto ? <img src={profilePhoto} alt="" /> : name.slice(0, 2).toUpperCase()}</span><label className="secondary-button compact"><Upload size={16} /> Choose photo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => choosePhoto(e.target.files?.[0])} hidden /></label></div><label>Display name<input value={name} onChange={e => setName(e.target.value)} maxLength={120} required /></label><label>Email address<input type="email" disabled={user.primaryAdmin} value={email} onChange={e => setEmail(e.target.value)} /><small>{user.primaryAdmin ? "The primary administrator email is controlled by the server environment." : "Keep an email or phone number on the account."}</small></label><label>Phone number<input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+964…" /></label><label>Account theme<select value={theme} onChange={e => setTheme(e.target.value as Theme)}><option value="default">Default white</option><option value="dark">Night</option><option value="spring">Spring</option><option value="summer">Summer</option><option value="autumn">Autumn</option><option value="winter">Winter</option></select></label>{user.role === "admin" && <label className="checkbox-row"><input type="checkbox" checked={muteAlarmNotifications} onChange={e => setMuteAlarmNotifications(e.target.checked)} /> Mute error notification bell <small>Alarms remain available on the Alarms page.</small></label>}{message && <div className="success">{message}</div>}{error && <div className="error">{error}</div>}<button className="primary-button compact">Save profile</button></form></section>
     {user.role === "admin" && <OrganizationSettings />}
     <section className="panel settings-panel"><form onSubmit={savePassword}><h2>Change password</h2><label>Current password<input type="password" autoComplete="current-password" value={passwords.currentPassword} onChange={e => setPasswords({ ...passwords, currentPassword: e.target.value })} required /></label><label>New password<input type="password" autoComplete="new-password" minLength={8} value={passwords.newPassword} onChange={e => setPasswords({ ...passwords, newPassword: e.target.value })} required /></label><label>Confirm new password<input type="password" autoComplete="new-password" minLength={8} value={passwords.confirmPassword} onChange={e => setPasswords({ ...passwords, confirmPassword: e.target.value })} required /></label>{passwordMessage && <div className="success">{passwordMessage}</div>}<button className="primary-button compact">Change password</button></form></section>
     {!user.primaryAdmin && <section className="panel danger-zone"><h2>Delete account</h2><p>This permanently removes your account, devices, telemetry, and command history. It cannot be recovered.</p><label>Type DELETE MY ACCOUNT<input value={confirmation} onChange={e => setConfirmation(e.target.value)} /></label><button className="danger-button" disabled={confirmation !== "DELETE MY ACCOUNT"} onClick={removeAccount}><Trash2 size={16} /> Permanently delete account</button></section>}

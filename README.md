@@ -122,7 +122,7 @@ The wizard asks for:
 - installation directory;
 - domain name or public IP;
 - primary administrator email, name, and password;
-- organization ID and display name;
+- editable organization code and display name;
 - an optional PNG, JPEG, WebP, or SVG organization logo;
 - optional UFW configuration and public MQTT access;
 - optional Let's Encrypt HTTPS when a domain is available.
@@ -368,6 +368,7 @@ The development seed includes `AHU001` with MQTT username `ahu001` and password
 | `ADMIN_NAME` | No | Initial administrator name |
 | `ADMIN_ORGANIZATION_ID` | No | Initial organization ID; default `ORG001` |
 | `ORGANIZATION_NAME` | No | Initial organization display name |
+| `ORGANIZATION_CODE` | No | Editable dashboard code; default `ORG001` |
 | `ORGANIZATION_LOGO` | No | Initial organization logo data URL |
 | `MQTT_URL` | No | Broker URL used by the API |
 | `MQTT_BACKEND_USERNAME` | Yes | MQTT service account |
@@ -483,10 +484,22 @@ Expected path:
 ### Organization administration
 
 - Organization display name and logo.
+- Editable organization code shown in the dashboard without rewriting internal record ownership.
 - First-run branding from `.env`.
 - User search by name, nickname, email, or role.
 - User enable/disable, role, nickname, and device allowance management.
 - Permanent user deletion with confirmation and cascading device data removal.
+
+### Administrator operations overview
+
+- Live CPU core count and utilization.
+- Used and total RAM and storage with percentage gauges.
+- Server uptime.
+- Total, online, and error-reporting device counts.
+- Active user and administrator totals.
+- Responsive progress bars and gauges.
+- World map automatically fitted to all device locations.
+- Green device markers for normal state and red markers for reported errors or alarms.
 
 ## Operations, backup, and updates
 

@@ -5,7 +5,7 @@ import type { User } from "./types";
 interface AuthValue {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<void>;
   logout: () => void;
   setCurrentUser: (user: User | null) => void;
 }
@@ -27,10 +27,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  async function login(email: string, password: string) {
+  async function login(identifier: string, password: string) {
     const result = await api<{ token: string; user: User }>("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ identifier, password })
     });
     localStorage.setItem("iot_token", result.token);
     setUser(result.user);

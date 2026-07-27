@@ -7,14 +7,20 @@ export async function seedOrganization() {
         organizationId
     });
 
-    if (exists)
+    if (exists) {
+        if (!exists.code) {
+            exists.code = process.env.ORGANIZATION_CODE || "ORG001";
+            await exists.save();
+        }
         return;
+    }
 
     await Organization.create({
 
         organizationId,
 
         name: process.env.ORGANIZATION_NAME || "Default Organization",
+        code: process.env.ORGANIZATION_CODE || "ORG001",
 
         ...(process.env.ORGANIZATION_LOGO
             ? { logo: process.env.ORGANIZATION_LOGO }

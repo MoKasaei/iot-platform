@@ -8,6 +8,8 @@ import { env } from "../../config/env";
 import Device from "../devices/device.model";
 import Telemetry from "../telemetry/telemetry.model";
 import Command from "../commands/command.model";
+import Alarm from "../alarms/alarm.model";
+import { normalizeEmail, normalizePhone, validEmail, validPhone } from "./identity";
 
 const registrationWindows = new Map<string, { count: number; resetAt: number }>();
 const CAPTCHA_TTL_MS = 5 * 60 * 1000;
@@ -29,20 +31,21 @@ async function deleteUserData(userId: string, organizationId: string) {
     await Promise.all([
         Telemetry.deleteMany({ organizationId, deviceId: { $in: ids } }),
         Command.deleteMany({ organizationId, deviceId: { $in: ids } }),
-        Device.deleteMany({ organizationId, ownerUserId: userId })
+        Device.deleteMany({ organizationId, ownerUserId: userId }),
+        Alarm.deleteMany({ organizationId, ownerUserId: userId })
     ]);
 }
 
 export async function login(req: Request, res: Response) {
-    const { email, password } = req.body ?? {};
+    const { identifier = req.body?.email, password } = req.body ?? {};
 
-    if (typeof email !== "string" || typeof password !== "string") {
-        return res.status(400).json({ success: false, error: "Email and password are required" });
+    if (typeof identifier !== "string" || typeof password !== "string") {
+        return res.status(400).json({ success: false, error: "Email or phone and password are required" });
     }
 
-    const session = await authenticate(email, password);
+    const session = await authenticate(identifier, password);
     if (!session) {
-        return res.status(401).json({ success: false, error: "Invalid email or password" });
+        return res.status(401).json({ success: false, error: "Invalid email, phone, or password" });
     }
 
     return res.json({ success: true, ...session });
@@ -50,7 +53,7 @@ export async function login(req: Request, res: Response) {
 
 export async function me(req: AuthRequest, res: Response) {
     const user = await User.findOne({ userId: req.user!.userId })
-        .select("userId organizationId name email role active nickname profilePhoto deviceLimit theme");
+        .select("userId organizationId name email phone role active nickname profilePhoto deviceLimit theme muteAlarmNotifications");
 
     if (!user?.active) {
         return res.status(401).json({ success: false, error: "User is inactive" });
@@ -85,12 +88,16 @@ export async function register(req: Request, res: Response) {
         ? { ...window, count: window.count + 1 }
         : { count: 1, resetAt: now + 15 * 60 * 1000 });
 
-    const { name, email, password, captchaToken, captchaAnswer, website } = req.body ?? {};
+    const { name, email, phone, password, captchaToken, captchaAnswer, website } = req.body ?? {};
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedPhone = normalizePhone(phone);
     if (website) return res.status(400).json({ success: false, error: "Registration rejected" });
     if (typeof name !== "string" || !name.trim() || name.trim().length > 120 ||
-        typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+        (!normalizedEmail && !normalizedPhone) ||
+        (normalizedEmail && !validEmail(normalizedEmail)) ||
+        (normalizedPhone && !validPhone(normalizedPhone)) ||
         typeof password !== "string" || password.length < 8) {
-        return res.status(400).json({ success: false, error: "Enter a valid name, email, and password of at least 8 characters" });
+        return res.status(400).json({ success: false, error: "Enter a valid name, email or phone, and password of at least 8 characters" });
     }
     const [payload, signature] = String(captchaToken || "").split(".");
     const expectedSignature = payload ? signCaptcha(payload) : "";
@@ -106,15 +113,16 @@ export async function register(req: Request, res: Response) {
     } catch {
         return res.status(400).json({ success: false, error: "CAPTCHA expired or invalid" });
     }
-    const normalizedEmail = email.toLowerCase().trim();
-    if (await User.exists({ email: normalizedEmail })) {
-        return res.status(409).json({ success: false, error: "Email already exists" });
+    if ((normalizedEmail && await User.exists({ email: normalizedEmail })) ||
+        (normalizedPhone && await User.exists({ phone: normalizedPhone }))) {
+        return res.status(409).json({ success: false, error: "Email or phone already exists" });
     }
     await User.create({
         userId: randomUUID(),
         organizationId: process.env.ADMIN_ORGANIZATION_ID || "ORG001",
         name: name.trim(),
-        email: normalizedEmail,
+        ...(normalizedEmail ? { email: normalizedEmail } : {}),
+        ...(normalizedPhone ? { phone: normalizedPhone } : {}),
         passwordHash: await bcrypt.hash(password, 12),
         role: "user",
         deviceLimit: 1
@@ -125,15 +133,57 @@ export async function register(req: Request, res: Response) {
 export async function updateMe(req: AuthRequest, res: Response) {
     const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
     const theme = req.body.theme;
-    if (!name || name.length > 120 || !validPhoto(req.body.profilePhoto) ||
-        (theme !== undefined && !["default", "dark", "spring", "summer", "autumn", "winter"].includes(theme))) {
-        return res.status(400).json({ success: false, error: "Enter a valid name and PNG, JPEG, or WebP photo under 250 KB" });
+    const email = normalizeEmail(req.body.email);
+    const phone = normalizePhone(req.body.phone);
+    const muteAlarmNotifications = req.body.muteAlarmNotifications;
+    if (!name || name.length > 120) {
+        return res.status(400).json({ success: false, error: "Enter a valid name of 120 characters or fewer" });
     }
+    if (!email && !phone) {
+        return res.status(400).json({ success: false, error: "Enter an email address or phone number" });
+    }
+    if ((email && !validEmail(email)) || (phone && !validPhone(phone))) {
+        return res.status(400).json({ success: false, error: "Enter a valid email address or phone number" });
+    }
+    if (!validPhoto(req.body.profilePhoto)) {
+        return res.status(400).json({ success: false, error: "Use a PNG, JPEG, or WebP profile photo under 250 KB" });
+    }
+    if (theme !== undefined && !["default", "dark", "spring", "summer", "autumn", "winter"].includes(theme)) {
+        return res.status(400).json({ success: false, error: "Select a valid account theme" });
+    }
+    const current = await User.findOne({ userId: req.user!.userId }).select("email role");
+    if (!current) return res.status(404).json({ success: false, error: "User not found" });
+    const primaryAdmin = current.email?.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase();
+    if (primaryAdmin && email !== current.email?.toLowerCase()) {
+        return res.status(403).json({ success: false, error: "The primary administrator email is controlled by the server environment" });
+    }
+    if (email && await User.exists({ email, userId: { $ne: req.user!.userId } })) {
+        return res.status(409).json({ success: false, error: "Email already exists" });
+    }
+    if (phone && await User.exists({ phone, userId: { $ne: req.user!.userId } })) {
+        return res.status(409).json({ success: false, error: "Phone number already exists" });
+    }
+    const profileUpdate: Record<string, unknown> = {
+        name,
+        profilePhoto: req.body.profilePhoto || null,
+        ...(email ? { email } : {}),
+        ...(phone ? { phone } : {}),
+        ...(theme ? { theme } : {}),
+        ...(current.role === "admin" && typeof muteAlarmNotifications === "boolean"
+            ? { muteAlarmNotifications }
+            : {})
+    };
     const user = await User.findOneAndUpdate(
         { userId: req.user!.userId },
-        { $set: { name, profilePhoto: req.body.profilePhoto || null, ...(theme ? { theme } : {}) } },
+        {
+            $set: profileUpdate,
+            $unset: {
+                ...(!email ? { email: 1 } : {}),
+                ...(!phone ? { phone: 1 } : {})
+            }
+        },
         { new: true }
-    ).select("userId organizationId name email role active nickname profilePhoto deviceLimit theme");
+    ).select("userId organizationId name email phone role active nickname profilePhoto deviceLimit theme muteAlarmNotifications");
     if (!user) {
         return res.status(404).json({ success: false, error: "User not found" });
     }
@@ -141,7 +191,7 @@ export async function updateMe(req: AuthRequest, res: Response) {
         success: true,
         user: {
             ...user.toObject(),
-            primaryAdmin: user.email.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase()
+            primaryAdmin
         }
     });
 }
@@ -164,7 +214,7 @@ export async function changePassword(req: AuthRequest, res: Response) {
 }
 
 export async function deleteMe(req: AuthRequest, res: Response) {
-    if (req.user!.email.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase()) {
+    if (req.user!.email?.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase()) {
         return res.status(403).json({ success: false, error: "The primary administrator cannot be removed" });
     }
     if (req.body?.confirmation !== "DELETE MY ACCOUNT") {
