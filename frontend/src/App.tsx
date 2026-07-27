@@ -682,17 +682,24 @@ function DeviceDetail() {
   }
 
   useEffect(() => {
+    let active = true;
+    let initialLoad = true;
     setError("");
-    Promise.all([
-      api<{ device: Device }>(`/devices/${deviceId}`),
-      api<{ telemetry: TelemetryPoint[] }>(`/devices/${deviceId}/telemetry?limit=100`)
-    ])
+    const loadInsight = () => Promise.all([
+        api<{ device: Device }>(`/devices/${deviceId}`),
+        api<{ telemetry: TelemetryPoint[] }>(`/devices/${deviceId}/telemetry?limit=100`)
+      ])
       .then(([deviceResponse, telemetryResponse]) => {
+        if (!active) return;
         setDevice(deviceResponse.device);
-        setOwnerUserId(deviceResponse.device.ownerUserId || "");
-        setNameDraft(deviceResponse.device.name);
         setTelemetry(telemetryResponse.telemetry);
-        if (hasCoordinates(deviceResponse.device.location)) {
+        const wasInitialLoad = initialLoad;
+        if (wasInitialLoad) {
+          initialLoad = false;
+          setOwnerUserId(deviceResponse.device.ownerUserId || "");
+          setNameDraft(deviceResponse.device.name);
+        }
+        if (wasInitialLoad && hasCoordinates(deviceResponse.device.location)) {
           setLocation({
             ...deviceResponse.device.location,
             label: deviceResponse.device.location.label || ""
@@ -700,12 +707,20 @@ function DeviceDetail() {
           void loadWeather();
         }
       })
-      .catch(loadError => setError(loadError.message));
+      .catch(loadError => {
+        if (active) setError(loadError.message);
+      });
+    void loadInsight();
+    const insightInterval = window.setInterval(loadInsight, 3000);
     if (user?.role === "admin") {
       api<{ users: User[] }>("/users")
         .then(response => setOwners(response.users.filter(owner => owner.active)))
         .catch(loadError => setError(loadError.message));
     }
+    return () => {
+      active = false;
+      window.clearInterval(insightInterval);
+    };
   }, [deviceId]);
 
   async function saveLocation() {
