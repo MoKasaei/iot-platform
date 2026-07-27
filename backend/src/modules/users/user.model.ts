@@ -10,6 +10,7 @@ export interface IUser extends Document {
     profilePhoto?: string;
     deviceLimit: number | null;
     theme: "default" | "dark" | "spring" | "summer" | "autumn" | "winter";
+    fontSize: "standard" | "large" | "extra-large";
     muteAlarmNotifications: boolean;
     email?: string;
     phone?: string;
@@ -28,6 +29,7 @@ const UserSchema = new Schema<IUser>({
     profilePhoto: { type: String },
     deviceLimit: { type: Number, default: 1, min: 0, max: 100 },
     theme: { type: String, enum: ["default", "dark", "spring", "summer", "autumn", "winter"], default: "default" },
+    fontSize: { type: String, enum: ["standard", "large", "extra-large"], default: "large" },
     muteAlarmNotifications: { type: Boolean, default: false },
     email: { type: String, unique: true, sparse: true, lowercase: true, trim: true, index: true },
     phone: { type: String, unique: true, sparse: true, trim: true, index: true },

@@ -15,6 +15,7 @@ export interface User {
   deviceLimit?: number | null;
   deviceCount?: number;
   theme?: Theme;
+  fontSize?: "standard" | "large" | "extra-large";
   muteAlarmNotifications?: boolean;
   createdAt?: string;
 }
