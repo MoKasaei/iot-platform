@@ -15,15 +15,15 @@ const String START_MARKER = "<ALIREZA_1050_START>";
 const String END_MARKER   = "<MALEKI_1050_END>";
 char ssid[50]         = "";
 char password[50]     = "";
-char deviceID[50]     = "";
+char deviceID[50]     = "AHU001";
 char mqttBroker[100]  = "89.251.9.24";
 char serverURL[100]   = "";
 int mqttPort          = 1883;
 const char* MQTT_USERNAME = "mqtt";
 const char* MQTT_PASSWORD = "mqtt";
 
-String mqttTopic        = "iotdashboard/devices/ali1050/telemetry";
-String mqttCommandTopic = "iotdashboard/devices/ali1050/commands";
+String mqttTopic        = "iotdashboard/devices/AHU001/telemetry";
+String mqttCommandTopic = "iotdashboard/devices/AHU001/commands";
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
@@ -531,7 +531,10 @@ void processSerialConfig(String input) {
 
   parts[0].toCharArray(ssid, sizeof(ssid));
   parts[1].toCharArray(password, sizeof(password));
-  parts[2].toCharArray(deviceID, sizeof(deviceID));
+  // Keep receiving the device-ID field over UART for protocol compatibility,
+  // but bind this firmware to the registered panel device AHU001.
+  strncpy(deviceID, "AHU001", sizeof(deviceID) - 1);
+  deviceID[sizeof(deviceID) - 1] = '\0';
   // Keep receiving the broker field over UART for protocol compatibility,
   // but always use the fixed production broker requested for this firmware.
   strncpy(mqttBroker, "89.251.9.24", sizeof(mqttBroker) - 1);
